@@ -160,17 +160,8 @@ jobs:
               - 'go.sum'
               - 'Makefile'
               - '.github/workflows/ci.yml'
-              - 'engine/**'
-              - 'cli/**'
-              - 'pkg/**'
-              - 'schemas/**'
-            frontend:
-              - 'docs/**'
-              - 'examples/**'
-              - 'package.json'
-              - 'bun.lock'
-              - 'turbo.json'
-              - 'tsconfig.json'
+              - 'cmd/**'
+              - 'internal/**'
             docs:
               - 'docs/**'
               - '*.md'
@@ -203,18 +194,6 @@ jobs:
         run: |
           echo "Running Go code quality checks..."
           golangci-lint run --fix --allow-parallel-runners
-        continue-on-error: false
-
-      - name: Generate Swagger documentation
-        run: |
-          echo "Generating API documentation..."
-          make swagger
-        continue-on-error: false
-
-      - name: Validate Swagger documentation
-        run: |
-          echo "Validating API documentation..."
-          make swagger-validate
         continue-on-error: false
 
       - name: Run tests

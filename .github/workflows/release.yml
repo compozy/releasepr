@@ -79,9 +79,9 @@ jobs:
           INITIAL_VERSION: ${{ env.INITIAL_VERSION }}
         run: |
           if [[ "${{ github.event.inputs.force_release }}" == "true" ]]; then
-            go run ./pkg/release pr-release --force --enable-rollback --ci-output
+            go run . pr-release --force --enable-rollback --ci-output
           else
-            go run ./pkg/release pr-release --enable-rollback --ci-output
+            go run . pr-release --enable-rollback --ci-output
           fi
 
   # Job 2: Dry-run checks on Release PR
@@ -119,7 +119,7 @@ jobs:
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_ISSUE_NUMBER: ${{ github.event.pull_request.number }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-        run: go run ./pkg/release dry-run --ci-output
+        run: go run . dry-run --ci-output
 
   # Job 3: Production release on merge
   release:

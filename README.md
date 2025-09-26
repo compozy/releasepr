@@ -64,16 +64,16 @@ The CLI is built using `cobra` and provides several commands to manage the relea
 
 ```bash
 # Check for pending changes
-go run ./pkg/release check-changes
+go run . check-changes
 
 # Calculate the next version
-go run ./pkg/release calculate-version
+go run . calculate-version
 
 # Generate a changelog for a version
-go run ./pkg/release generate-changelog --version v1.2.3
+go run . generate-changelog --version v1.2.3
 
 # Create a new release branch
-go run ./pkg/release create-release-branch --branch-name release/v1.2.3
+go run . create-release-branch --branch-name release/v1.2.3
 ```
 
 ## Internal Architecture

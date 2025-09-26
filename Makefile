@@ -133,7 +133,7 @@ clean-go-cache:
 # Build the compozy-release binary
 compozy-release:
 	mkdir -p $(BINARY_DIR)
-	$(GOBUILD) -o $(BINARY_DIR)/compozy-release ./pkg/release
+	$(GOBUILD) -o $(BINARY_DIR)/compozy-release .
 
 # -----------------------------------------------------------------------------
 # Testing
