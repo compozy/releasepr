@@ -1,0 +1,133 @@
+# .gitignore
+# Specifies intentionally untracked files that Git should ignore.
+
+# === COMPOZY-SPECIFIC ===
+file_contents.txt
+**/file_contents.txt
+examples/**/results.*
+.compozy
+sessions/
+./compozy
+diff.txt
+engine/schema/reviews/*.md
+ai-docs/reviews-pr-*
+
+# === DEPENDENCIES ===
+node_modules/
+/node_modules
+bun.lockb
+.bun
+.cache
+
+# === BUILD OUTPUT ===
+/build/
+build/
+**/.next/
+/.next/
+.next/
+/out/
+**/out/
+*.tsbuildinfo
+dist/
+/dist/
+**/dist/
+completions
+.serena/cache
+.venv
+
+# === TURBOREPO ===
+.turbo
+**/**/.turbo
+
+# === NEXT.JS SPECIFIC ===
+next-env.d.ts
+**/next-env.d.ts
+.next/cache/
+**/.next/cache/
+
+# === LOGS & REPORTS ===
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+**/reports/**
+**/coverage*
+/coverage
+*storybook.log
+
+# === ENVIRONMENT ===
+.env
+.envrc
+.env.*
+.env*.local
+
+# === GENERATED CONTENT ===
+.contentlayer
+**/.contentlayer
+.content-collections
+**/.content-collections
+.source
+**/.source
+storybook-static
+**/storybook-static
+docs/src/schemas
+**/docs/src/schemas
+
+# === GO-SPECIFIC ===
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when run with the -o flag
+*.out
+
+# Dependency directories (remove the comment below if you do not commit vendor)
+# vendor/
+
+# Go workspace file
+# go.work
+# go.work.sum
+
+# === IDE & EDITORS ===
+.opencode
+.idea/
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# === OS-SPECIFIC ===
+.DS_Store
+Thumbs.db
+*.pem
+
+# === MISC ===
+/.pnp
+.pnp.js
+.vercel
+*.local.json
+.aider*
+!.github/workflows/coverage.yml
+
+# Logs
+# Dependency directories
+# Environment variables
+# Editor directories and files
+# OS specific
+
+# Task files
+tasks.json

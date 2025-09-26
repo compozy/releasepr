@@ -1,0 +1,68 @@
+---
+alwaysApply: false
+---
+
+Compozy uses YAML configuration files to define projects, workflows, agents, tools, and runtime settings. This index references focused documentation for each configuration type.
+
+## Configuration File Types
+
+### Project Configuration (`compozy.yaml`)
+See [compozy/project-config.mdc](mdc:.cursor/rules/compozy-project-config.mdc) for:
+- Basic project configuration
+- Model configuration patterns
+- AutoLoad configuration
+- Runtime permissions
+- Environment variable patterns
+
+### Workflow and Task Configuration
+See [compozy/task-patterns.mdc](mdc:.cursor/rules/compozy-task-patterns.mdc) for:
+- All task type patterns (basic, composite, parallel, collection, router, signal, aggregate)
+- Workflow configuration structure
+- Tool configuration
+- Execution strategies
+- Trigger patterns
+- Bun configuration
+
+### Agent Configuration
+See [compozy/agent-config.mdc](mdc:.cursor/rules/compozy-agent-config.mdc) for:
+- Basic agent configuration
+- Agent instructions and actions
+- Agent with MCP integration
+- Tool integration patterns
+
+### Attachments
+See [compozy/attachments.mdc](mdc:.cursor/rules/compozy-attachments.mdc) for:
+- Attachment types and sources (image, pdf, audio, video, file, url)
+- Global limits and SSRF protections
+- LLM parts behavior and YAML examples
+
+### HTTP API
+See [compozy/api-index.mdc](mdc:.cursor/rules/compozy-api-index.mdc) for grouped API categories and links, including:
+- Resources CRUD with ETag/If-Match
+- Webhooks ingress and verification
+- Workflow component introspection (agents, tools)
+- Admin, Auth/Users, Memory, Health
+
+## Quick Reference
+
+```yaml
+# Basic project structure
+name: project-name
+version: 0.1.0
+workflows:
+  - source: ./workflow.yaml
+
+# Basic task structure
+- id: task_name
+  type: basic
+  tool: tool_name
+  with:
+    param: "{{ .workflow.input.value }}"
+
+# Basic agent structure
+resource: agent
+id: agent_name
+config:
+  provider: groq
+  model: llama-3.3-70b-versatile
+```
