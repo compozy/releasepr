@@ -1,0 +1,185 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
+# vim: set ts=2 sw=2 tw=0 fo=jcroql
+version: 2
+pro: true
+
+project_name: compozy-release
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+  license: "BSL-1.1"
+  homepage: "https://github.com/compozy/releasepr"
+  description: "Compozy release automation CLI"
+  maintainers:
+    - "Compozy Team <support@compozy.com>"
+
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=0
+
+git:
+  tag_sort: -version:refname
+
+builds:
+  - id: compozy-release
+    main: ./
+    binary: compozy-release
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/compozy/releasepr/pkg/version.Version={{ .Version }}
+      - -X github.com/compozy/releasepr/pkg/version.CommitHash={{ .ShortCommit }}
+      - -X github.com/compozy/releasepr/pkg/version.BuildDate={{ .Date }}
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: compozy-release-archive
+    ids:
+      - compozy-release
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE*
+    wrap_in_directory: true
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+snapshot:
+  version_template: "0.0.0-{{ .Timestamp }}"
+
+source:
+  enabled: true
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: "\U0001F389"
+      regexp: "^.*feat[\\(\\w)]*:+.*$"
+      order: 0
+    - title: "\U0001F41B"
+      regexp: "^.*fix[\\(\\w)]*:+.*$"
+      order: 1
+    - title: "⚡"
+      regexp: "^.*perf[\\(\\w)]*:+.*$"
+      order: 2
+    - title: "\U0001F510"
+      regexp: "^.*security[\\(\\w)]*:+.*$"
+      order: 3
+    - title: "\U0001F4DA"
+      regexp: "^.*docs[\\(\\w)]*:+.*$"
+      order: 4
+    - title: "\U0001F527"
+      regexp: "^.*refactor[\\(\\w)]*:+.*$"
+      order: 5
+    - title: "\U0001F4E6"
+      regexp: "^.*deps[\\(\\w)]*:+.*$"
+      order: 6
+    - title: "\U0001F9EA"
+      regexp: "^.*test[\\(\\w)]*:+.*$"
+      order: 7
+    - title: "\U0001F504"
+      order: 999
+  filters:
+    exclude:
+      - "^(build|ci): "
+      - "^chore: auto-update generated files$"
+      - "^chore: docs$"
+      - "^chore: schema update$"
+      - "^chore: typo$"
+      - "^chore\\(legal\\): "
+      - "^chore\\(deps\\): "
+      - "^docs: update$"
+      - "^test:"
+      - "^test\\("
+      - "merge conflict"
+      - Merge branch
+      - Merge pull request
+      - Merge remote-tracking branch
+      - go mod tidy
+      - "^wip "
+      - "^wip:"
+
+release:
+  github:
+    owner: compozy
+    name: releasepr
+  name_template: "Release {{ .Version }}"
+  mode: replace
+  draft: false
+  prerelease: auto
+  header: |
+    ## Compozy Release CLI {{ .Version }}
+
+    Welcome to the latest release of the Compozy release automation CLI! 🎉
+
+    ### Installation
+
+    #### Binary Download
+    Download the appropriate binary for your platform from the assets below.
+
+    #### Go Install
+    ```bash
+    go install github.com/compozy/releasepr@{{ .Tag }}
+    ```
+
+  footer: |
+    ### Verification
+
+    All release artifacts are signed and can be verified:
+
+    #### Checksums
+    ```bash
+    cosign verify-blob \
+      --signature checksums.txt.sig \
+      --certificate checksums.txt.pem \
+      checksums.txt
+    ```
+
+    **Full Changelog**: https://github.com/compozy/releasepr/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ---
+
+    Thank you to all contributors who made this release possible! 🙏
+
+sboms:
+  - artifacts: archive
+  - id: source
+    artifacts: source
