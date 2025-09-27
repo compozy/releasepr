@@ -9,7 +9,7 @@ GOVERSION ?= $(shell awk '/^go /{print $$2}' go.mod 2>/dev/null || echo "1.25")
 GOBUILD=$(GOCMD) build
 GOTEST=$(GOCMD) test
 GOFMT=gofmt -s -w
-BINARY_NAME=compozy
+BINARY_NAME=pr-release
 BINARY_DIR=bin
 SRC_DIRS=./...
 LINTCMD=golangci-lint
@@ -28,7 +28,11 @@ VERSION := $(shell git describe --tags --match="v*" --always 2>/dev/null || echo
 
 # Build flags for injecting version info (aligned with GoReleaser format)
 BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS := -X github.com/compozy/releasepr/pkg/version.Version=$(VERSION) -X github.com/compozy/releasepr/pkg/version.CommitHash=$(GIT_COMMIT) -X github.com/compozy/releasepr/pkg/version.BuildDate=$(BUILD_DATE)
+MODULE_PATH := $(shell $(GOCMD) list -m 2>/dev/null)
+ifeq ($(MODULE_PATH),)
+MODULE_PATH := github.com/compozy/releasepr
+endif
+LDFLAGS := -X $(MODULE_PATH)/pkg/version.Version=$(VERSION) -X $(MODULE_PATH)/pkg/version.CommitHash=$(GIT_COMMIT) -X $(MODULE_PATH)/pkg/version.BuildDate=$(BUILD_DATE)
 
 # -----------------------------------------------------------------------------
 # Swagger/OpenAPI
@@ -51,7 +55,9 @@ check-go-version:
 		echo "$(RED)Error: Go is not available$(NC)"; \
 		echo "Please ensure Go $(GOVERSION) is installed via mise"; \
 		exit 1; \
-	elif [ "$$(printf '%s\n' "$$REQUIRED_VERSION" "$$GO_VERSION" | sort -V | head -n1)" != "$$REQUIRED_VERSION" ]; then \
+	elif CURRENT_NUM=$$(echo "$$GO_VERSION" | awk -F. '{maj=$$1+0; min=($$2==""?0:$$2)+0; pat=($$3==""?0:$$3)+0; printf "%03d%03d%03d", maj, min, pat}'); \
+	REQUIRED_NUM=$$(echo "$$REQUIRED_VERSION" | awk -F. '{maj=$$1+0; min=($$2==""?0:$$2)+0; pat=($$3==""?0:$$3)+0; printf "%03d%03d%03d", maj, min, pat}'); \
+	[ "$$CURRENT_NUM" -lt "$$REQUIRED_NUM" ]; then \
 		echo "$(YELLOW)Warning: Go version $$GO_VERSION found, but $(GOVERSION) is required$(NC)"; \
 		echo "Please update Go to version $(GOVERSION) with: mise use go@$(GOVERSION)"; \
 		exit 1; \
@@ -83,7 +89,7 @@ build: check-go-version swagger
 lint:
 	$(LINTCMD) run --fix --allow-parallel-runners
 	@echo "Running static driver import guard..."
-	@./scripts/check-driver-imports.sh
+	@if [ -x ./scripts/check-driver-imports.sh ]; then ./scripts/check-driver-imports.sh; else echo "Skipping driver import guard (script not found)"; fi
 	@echo "Scanning docs for legacy tool references... (make scan-docs to enforce)"
 	@echo "Running modernize analyzer for min/max suggestions..."
 	@echo "Linting completed successfully"
@@ -128,12 +134,12 @@ clean-go-cache:
 # -----------------------------------------------------------------------------
 # Release Management
 # -----------------------------------------------------------------------------
-.PHONY: compozy-release
+.PHONY: pr-release
 
-# Build the compozy-release binary
-compozy-release:
+# Build the pr-release binary
+pr-release:
 	mkdir -p $(BINARY_DIR)
-	$(GOBUILD) -o $(BINARY_DIR)/compozy-release .
+	$(GOBUILD) -o $(BINARY_DIR)/pr-release .
 
 # -----------------------------------------------------------------------------
 # Testing

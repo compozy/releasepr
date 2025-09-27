@@ -71,17 +71,21 @@ jobs:
       - uses: ./.github/actions/setup-node
       - uses: ./.github/actions/setup-git-cliff
 
+      - name: Build pr-release CLI
+        run: go build -o bin/pr-release .
+
       - name: Run PR Release Orchestrator
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           INITIAL_VERSION: ${{ env.INITIAL_VERSION }}
         run: |
           if [[ "${{ github.event.inputs.force_release }}" == "true" ]]; then
-            go run . pr-release --force --enable-rollback --ci-output
+            ./bin/pr-release pr-release --force --enable-rollback --ci-output
           else
-            go run . pr-release --enable-rollback --ci-output
+            ./bin/pr-release pr-release --enable-rollback --ci-output
           fi
 
   # Job 2: Dry-run checks on Release PR
@@ -104,6 +108,9 @@ jobs:
 
       - uses: ./.github/actions/setup-node
 
+      - name: Build pr-release CLI
+        run: go build -o bin/pr-release .
+
       - name: Setup Release Tools
         uses: ./.github/actions/setup-release
         with:
@@ -114,12 +121,13 @@ jobs:
       - name: Run Dry-Run Orchestrator
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_ISSUE_NUMBER: ${{ github.event.pull_request.number }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-        run: go run . dry-run --ci-output
+        run: ./bin/pr-release dry-run --ci-output
 
   # Job 3: Production release on merge
   release:

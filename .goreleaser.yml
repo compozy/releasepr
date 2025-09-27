@@ -3,7 +3,7 @@
 version: 2
 pro: true
 
-project_name: compozy-release
+project_name: pr-release
 
 metadata:
   mod_timestamp: "{{ .CommitTimestamp }}"
@@ -21,9 +21,9 @@ git:
   tag_sort: -version:refname
 
 builds:
-  - id: compozy-release
+  - id: pr-release
     main: ./
-    binary: compozy-release
+    binary: pr-release
     goos:
       - linux
       - darwin
@@ -46,9 +46,9 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - id: compozy-release-archive
+  - id: pr-release-archive
     ids:
-      - compozy-release
+      - pr-release
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
@@ -146,14 +146,14 @@ release:
   draft: false
   prerelease: auto
   header: |
-    ## Compozy Release CLI {{ .Version }}
+    ## PR Release CLI {{ .Version }}
 
-    Welcome to the latest release of the Compozy release automation CLI! 🎉
+    Welcome to the latest release of the PR release automation CLI! 🎉
 
     ### Installation
 
     #### Binary Download
-    Download the appropriate binary for your platform from the assets below.
+    Download the appropriate `pr-release_{{ .Version }}_<os>_<arch>.tar.gz` asset for your platform and extract it.
 
     #### Go Install
     ```bash

@@ -5,9 +5,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "compozy-release",
-	Short: "A CLI tool for managing Compozy releases",
-	Long:  `compozy-release handles the entire release process, from version calculation to publishing.`,
+	Use:   "pr-release",
+	Short: "Create release pull requests for any repository",
+	Long:  `pr-release automates tagging, changelog generation, and release pull request orchestration for GitHub repositories.`,
 }
 
 func Execute() error {

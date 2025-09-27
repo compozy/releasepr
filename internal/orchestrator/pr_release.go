@@ -671,7 +671,7 @@ func (o *PRReleaseOrchestrator) performRollback(ctx context.Context, sessionID s
 	}
 
 	// Load the saga from state
-	saga, err := LoadExistingSaga(o.stateRepo, sessionID)
+	saga, err := LoadExistingSaga(ctx, o.stateRepo, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to load saga: %w", err)
 	}

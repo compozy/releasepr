@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/compozy/releasepr/internal/config"
 	"github.com/compozy/releasepr/internal/orchestrator"
@@ -37,13 +36,14 @@ func newContainer() (*container, error) {
 		return nil, err
 	}
 
-	// GitHub repository is optional - only create if token is provided
 	var ghRepo repository.GithubRepository
 	if cfg.GithubToken != "" {
 		ghRepo, err = repository.NewGithubRepository(cfg.GithubToken, cfg.GithubOwner, cfg.GithubRepo)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		ghRepo = repository.NewGithubNoopRepository(cfg.GithubOwner, cfg.GithubRepo)
 	}
 
 	cliffSvc := service.NewCliffService()
@@ -73,6 +73,8 @@ func InitCommands() error {
 		return err
 	}
 
+	rootCmd.AddCommand(newVersionCmd())
+
 	return nil
 }
 
@@ -84,49 +86,26 @@ func addOrchestratorCommands(c *container) error {
 		return fmt.Errorf("failed to initialize git extended repository: %w", err)
 	}
 
-	// Get GitHub configuration from environment for orchestrator commands
-	token := os.Getenv("GITHUB_TOKEN")
+	token := c.cfg.GithubToken
 	if token == "" {
 		token = os.Getenv("RELEASE_TOKEN")
 	}
+	owner := c.cfg.GithubOwner
+	repo := c.cfg.GithubRepo
+	if owner == "" || repo == "" {
+		return fmt.Errorf("github owner/repo not configured; set GITHUB_REPOSITORY or config values")
+	}
+
+	var githubExtRepo repository.GithubExtendedRepository
 	if token == "" {
-		// GitHub commands are optional - only add if token is available
-		return nil
-	}
-
-	owner := os.Getenv("GITHUB_REPOSITORY_OWNER")
-	if owner == "" {
-		// Try to extract from GITHUB_REPOSITORY (format: owner/repo)
-		repoEnv := os.Getenv("GITHUB_REPOSITORY")
-		if repoEnv != "" {
-			if idx := strings.Index(repoEnv, "/"); idx > 0 {
-				owner = repoEnv[:idx]
-			}
+		fmt.Fprintln(os.Stderr, "GitHub token not provided; GitHub operations will be skipped")
+		githubExtRepo = repository.NewGithubNoopExtendedRepository(owner, repo)
+	} else {
+		var err error
+		githubExtRepo, err = repository.NewGithubExtendedRepository(token, owner, repo)
+		if err != nil {
+			return fmt.Errorf("failed to initialize GitHub extended repository: %w", err)
 		}
-	}
-	if owner == "" {
-		// GitHub commands are optional
-		return nil
-	}
-
-	repo := os.Getenv("GITHUB_REPOSITORY_NAME")
-	if repo == "" {
-		// Try to extract from GITHUB_REPOSITORY (format: owner/repo)
-		repoEnv := os.Getenv("GITHUB_REPOSITORY")
-		if repoEnv != "" {
-			if idx := strings.Index(repoEnv, "/"); idx > 0 && idx < len(repoEnv)-1 {
-				repo = repoEnv[idx+1:]
-			}
-		}
-	}
-	if repo == "" {
-		// Default to "compozy"
-		repo = "compozy"
-	}
-
-	githubExtRepo, err := repository.NewGithubExtendedRepository(token, owner, repo)
-	if err != nil {
-		return fmt.Errorf("failed to initialize GitHub extended repository: %w", err)
 	}
 
 	// Create PR Release orchestrator

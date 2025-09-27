@@ -345,7 +345,7 @@ func TestLoadExistingSaga(t *testing.T) {
 		mockRepo.On("Load", mock.Anything, sessionID).Return(expectedState, nil)
 
 		// Act
-		saga, err := LoadExistingSaga(mockRepo, sessionID)
+		saga, err := LoadExistingSaga(context.Background(), mockRepo, sessionID)
 
 		// Assert
 		require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestLoadExistingSaga(t *testing.T) {
 		mockRepo.On("Load", mock.Anything, sessionID).Return(nil, errStateNotFound)
 
 		// Act
-		saga, err := LoadExistingSaga(mockRepo, sessionID)
+		saga, err := LoadExistingSaga(context.Background(), mockRepo, sessionID)
 
 		// Assert
 		assert.Error(t, err)

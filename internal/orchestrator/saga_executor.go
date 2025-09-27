@@ -40,8 +40,12 @@ func NewSagaExecutor(stateRepo repository.StateRepository, enableRollback bool) 
 }
 
 // LoadExistingSaga loads an existing saga from state
-func LoadExistingSaga(stateRepo repository.StateRepository, sessionID string) (*SagaExecutor, error) {
-	state, err := stateRepo.Load(context.Background(), sessionID)
+func LoadExistingSaga(
+	ctx context.Context,
+	stateRepo repository.StateRepository,
+	sessionID string,
+) (*SagaExecutor, error) {
+	state, err := stateRepo.Load(ctx, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load saga state: %w", err)
 	}
@@ -77,7 +81,7 @@ func (s *SagaExecutor) Execute(ctx context.Context) error {
 					fmt.Printf("Warning: failed to save state before rollback: %v\n", saveErr)
 				}
 				// Create separate context for rollback to ensure it completes
-				rollbackCtx, cancel := context.WithTimeout(context.Background(), RollbackTimeout)
+				rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)
 				rollbackErr := s.rollback(rollbackCtx)
 				cancel() // Call cancel immediately after rollback
 				if rollbackErr != nil {
@@ -108,19 +112,19 @@ func (s *SagaExecutor) executeStep(ctx context.Context, step SagaStep) error {
 		}
 	}
 	var rollbackData map[string]any
-	var err error
 	retryStrategy := retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay))
-	err = retry.Do(ctx, retryStrategy, func(retryCtx context.Context) error {
+	err := retry.Do(ctx, retryStrategy, func(retryCtx context.Context) error {
 		// Check if context is canceled before executing
 		select {
 		case <-retryCtx.Done():
 			return retryCtx.Err()
 		default:
 		}
-		rollbackData, err = step.Execute(retryCtx)
-		if err != nil {
-			return retry.RetryableError(err)
+		data, execErr := step.Execute(retryCtx)
+		if execErr != nil {
+			return retry.RetryableError(execErr)
 		}
+		rollbackData = data
 		return nil
 	})
 	if err != nil {
