@@ -4,9 +4,9 @@ author: "Compozy Team"
 
 inputs:
   bun-version:
-    description: "Bun version to install"
+    description: "Bun version to install (fallback if .bun-version missing)"
     required: false
-    default: "1.2.21"
+    default: "1.2.22"
   cache-key-suffix:
     description: "Additional suffix for cache key"
     required: false
@@ -31,6 +31,8 @@ runs:
       id: setup-bun
       uses: oven-sh/setup-bun@v2
       with:
+        # Prefer pinned version from project file for consistency across dev/CI
+        bun-version-file: .bun-version
         bun-version: ${{ inputs.bun-version }}
 
     - name: Cache Bun dependencies
@@ -40,10 +42,11 @@ runs:
         path: |
           ~/.bun/install/cache
           node_modules
-        key: ${{ runner.os }}-bun-${{ inputs.bun-version }}-${{ hashFiles('**/bun.lockb', '**/package.json')}}${{
-          inputs.cache-key-suffix }}
+        # Use the actual resolved Bun version and the text lockfile to bust cache correctly
+        key: ${{ runner.os }}-bun-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('**/bun.lock',
+          '**/package.json') }}${{ inputs.cache-key-suffix }}
         restore-keys: |
-          ${{ runner.os }}-bun-${{ inputs.bun-version }}-
+          ${{ runner.os }}-bun-${{ steps.setup-bun.outputs.bun-version }}-
           ${{ runner.os }}-bun-
 
     - name: Install dependencies
@@ -51,7 +54,8 @@ runs:
       shell: bash
       run: |
         echo "Installing dependencies with Bun..."
-        bun install --frozen-lockfile
+        # 'bun ci' installs using lockfile without modifying it
+        bun ci
 
     - name: Report setup status
       shell: bash
