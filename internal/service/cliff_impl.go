@@ -181,3 +181,18 @@ func (s *cliffService) GenerateChangelog(ctx context.Context, version, mode stri
 
 	return changelog, nil
 }
+
+// GenerateFullChangelog renders the complete changelog using git-cliff.
+func (s *cliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
+	output, err := s.executeCommand(ctx, "git-cliff", "-o", "-")
+	if err != nil {
+		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
+	}
+
+	changelog := string(output)
+	if strings.TrimSpace(changelog) == "" {
+		return "", fmt.Errorf("git-cliff returned empty changelog")
+	}
+
+	return changelog, nil
+}

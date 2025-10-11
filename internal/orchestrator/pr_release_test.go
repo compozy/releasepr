@@ -47,7 +47,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		// Setup expectations for generateChangelog
 		changelog := "## v1.1.0\n\n### Features\n- New feature added\n### Bug Fixes\n- Fixed critical bug"
+		fullChangelog := "# Changelog\n\n" + changelog + "\n\n## v1.0.0\n\n### Misc\n- Previous entry"
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything).Return(fullChangelog, nil).Once()
 
 		// Setup expectations for commitChanges
 		gitRepo.On("ConfigureUser", mock.Anything, "github-actions[bot]", "github-actions[bot]@users.noreply.github.com").
@@ -85,8 +87,18 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// Verify files were created
 		changelogExists, _ := afero.Exists(fsRepo, "CHANGELOG.md")
 		assert.True(t, changelogExists, "CHANGELOG.md should be created")
+		if changelogExists {
+			data, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
+			require.NoError(t, err)
+			assert.Equal(t, fullChangelog, string(data))
+		}
 		releaseNotesExists, _ := afero.Exists(fsRepo, "RELEASE_NOTES.md")
 		assert.True(t, releaseNotesExists, "RELEASE_NOTES.md should be created")
+		if releaseNotesExists {
+			data, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
+			require.NoError(t, err)
+			assert.Equal(t, changelog, string(data))
+		}
 	})
 
 	t.Run("Should skip PR creation when no changes exist and force flag is false", func(t *testing.T) {

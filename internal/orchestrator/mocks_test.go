@@ -155,6 +155,16 @@ func (m *mockCliffService) GenerateChangelog(ctx context.Context, version, mode 
 	return args.String(0), args.Error(1)
 }
 
+func (m *mockCliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "GenerateFullChangelog" {
+			args := m.Called(ctx)
+			return args.String(0), args.Error(1)
+		}
+	}
+	return "# Mock changelog\n", nil
+}
+
 // Mock for NpmService
 type mockNpmService struct{ mock.Mock }
 

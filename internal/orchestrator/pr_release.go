@@ -258,8 +258,14 @@ func (o *PRReleaseOrchestrator) generateChangelog(ctx context.Context, version, 
 	if err != nil {
 		return "", err
 	}
+
+	fullChangelog, err := o.cliffSvc.GenerateFullChangelog(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to build complete changelog: %w", err)
+	}
+
 	// Write changelog to file using filesystem repository
-	if err := afero.WriteFile(o.fsRepo, "CHANGELOG.md", []byte(changelog), FilePermissionsReadWrite); err != nil {
+	if err := afero.WriteFile(o.fsRepo, "CHANGELOG.md", []byte(fullChangelog), FilePermissionsReadWrite); err != nil {
 		return "", fmt.Errorf("failed to write changelog: %w", err)
 	}
 	// Also create release notes

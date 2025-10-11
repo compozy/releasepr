@@ -61,6 +61,11 @@ func (m *mockCliffService) GenerateChangelog(ctx context.Context, version, mode 
 	return args.String(0), args.Error(1)
 }
 
+func (m *mockCliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
+	args := m.Called(ctx)
+	return args.String(0), args.Error(1)
+}
+
 func (m *mockCliffService) CalculateNextVersion(ctx context.Context, currentVersion string) (*domain.Version, error) {
 	args := m.Called(ctx, currentVersion)
 	if args.Get(0) == nil {
