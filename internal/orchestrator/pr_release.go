@@ -16,6 +16,7 @@ import (
 	"github.com/sethvargo/go-retry"
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // PRReleaseConfig contains configuration for PR release workflow.
@@ -374,8 +375,7 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 	o.addCheckChangesStep(saga, cfg, compensator, wctx)
 	o.addCalculateVersionStep(saga, cfg, compensator, wctx)
 	o.addCreateBranchStep(saga, cfg, compensator, wctx, originalBranch)
-	o.addUpdatePackagesStep(saga, compensator, wctx)
-	o.addGenerateChangelogStep(saga, compensator, wctx)
+	o.addPrepareReleaseArtifactsStep(saga, compensator, wctx)
 	o.addCommitChangesStep(saga, compensator, wctx)
 	o.addPushBranchStep(saga, cfg, compensator, wctx)
 	o.addCreatePRStep(saga, cfg, compensator, wctx)
@@ -397,6 +397,7 @@ type workflowContext struct {
 	latestTag        string
 	prNumber         int
 	createdInSession bool
+	changelog        string
 }
 
 // Workflow step methods
@@ -608,56 +609,50 @@ func (o *PRReleaseOrchestrator) logBranchStatus(
 	}
 }
 
-func (o *PRReleaseOrchestrator) addUpdatePackagesStep(
+func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 	saga *SagaExecutor,
 	compensator *CompensatingActions,
 	wctx *workflowContext,
 ) {
 	saga.AddStep(SagaStep{
-		Name: "Update Package Versions",
+		Name: "Prepare Release Artifacts",
 		Type: domain.OperationTypeUpdatePackages,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" {
 				return map[string]any{"skip": true}, nil
 			}
-			o.logger(ctx).Info("Updating package versions", zap.String("version", wctx.version))
-			if err := o.updatePackageVersions(ctx, wctx.version); err != nil {
-				o.logger(ctx).Error("Failed to update package versions", zap.Error(err))
-				return nil, fmt.Errorf("failed to update package versions: %w", err)
+			o.logger(ctx).Info("Preparing release artifacts", zap.String("version", wctx.version))
+			g, gctx := errgroup.WithContext(ctx)
+			var changelog string
+			g.Go(func() error {
+				o.logger(gctx).Info("Updating package versions", zap.String("version", wctx.version))
+				if err := o.updatePackageVersions(gctx, wctx.version); err != nil {
+					o.logger(gctx).Error("Failed to update package versions", zap.Error(err))
+					return fmt.Errorf("failed to update package versions: %w", err)
+				}
+				o.logger(gctx).Info("Updated package versions", zap.String("version", wctx.version))
+				return nil
+			})
+			g.Go(func() error {
+				o.logger(gctx).Info("Generating changelog", zap.String("version", wctx.version))
+				var err error
+				changelog, err = o.generateChangelog(gctx, wctx.version, "unreleased")
+				if err != nil {
+					o.logger(gctx).Error("Failed to generate changelog", zap.Error(err))
+					return fmt.Errorf("failed to generate changelog: %w", err)
+				}
+				o.logger(gctx).Info("Generated changelog", zap.String("version", wctx.version))
+				return nil
+			})
+			if err := g.Wait(); err != nil {
+				return nil, err
 			}
-			o.logger(ctx).Info("Updated package versions", zap.String("version", wctx.version))
+			wctx.changelog = changelog
+			o.logger(ctx).Info("Release artifacts prepared successfully", zap.String("version", wctx.version))
 			return map[string]any{
 				"modified_files": []string{
 					"package.json",
 					"package-lock.json",
-				},
-			}, nil
-		},
-		Compensate: compensator.RestoreFiles,
-	})
-}
-
-func (o *PRReleaseOrchestrator) addGenerateChangelogStep(
-	saga *SagaExecutor,
-	compensator *CompensatingActions,
-	wctx *workflowContext,
-) {
-	saga.AddStep(SagaStep{
-		Name: "Generate Changelog",
-		Type: domain.OperationTypeGenerateChangelog,
-		Execute: func(ctx context.Context) (map[string]any, error) {
-			if wctx.version == "" {
-				return map[string]any{"skip": true}, nil
-			}
-			o.logger(ctx).Info("Generating changelog", zap.String("version", wctx.version))
-			changelog, err := o.generateChangelog(ctx, wctx.version, "unreleased")
-			if err != nil {
-				o.logger(ctx).Error("Failed to generate changelog", zap.Error(err))
-				return nil, fmt.Errorf("failed to generate changelog: %w", err)
-			}
-			o.logger(ctx).Info("Generated changelog", zap.String("version", wctx.version))
-			return map[string]any{
-				"modified_files": []string{
 					"CHANGELOG.md",
 					"RELEASE_NOTES.md",
 				},
@@ -744,11 +739,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				return map[string]any{"skip": true}, nil
 			}
 			o.logger(ctx).Info("Preparing pull request", zap.String("version", wctx.version))
-			changelog, err := o.generateChangelog(ctx, wctx.version, "unreleased")
-			if err != nil {
-				o.logger(ctx).Error("Failed to generate changelog for PR", zap.Error(err))
-				return nil, fmt.Errorf("failed to get changelog for PR: %w", err)
-			}
+			changelog := wctx.changelog
 			ver, err := domain.NewVersion(wctx.version)
 			if err != nil {
 				o.logger(ctx).Error("Failed to parse version", zap.String("version", wctx.version), zap.Error(err))

@@ -43,7 +43,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// Setup expectations for createReleaseBranch
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Setup expectations for generateChangelog
@@ -59,8 +58,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("AddFiles", mock.Anything, "package-lock.json").Return(nil).Once()
 		// tools/* updates removed
 		gitRepo.On("Commit", mock.Anything, "ci(release): prepare release v1.1.0").Return(nil).Once()
-
-		// Setup expectations for push and PR creation
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "ci(release): Release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
@@ -148,7 +145,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// Setup remaining expectations for forced release
 		branchName := "release/v1.0.1"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.0.1\n\n### Maintenance\n- Forced release"
@@ -256,7 +252,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation (use mock.Anything for context)
@@ -298,7 +293,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Times(2) // Once for branch, once after commit
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
@@ -307,6 +301,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on PR creation (use mock.Anything for context)
 		// Note: The retry might not be happening for non-retryable errors
@@ -347,7 +342,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Times(2)
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
@@ -356,6 +350,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		cfg := PRReleaseConfig{
@@ -435,7 +430,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		branchName := "release/v0.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Times(2)
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v0.1.0\n\n### Features\n- Initial release"
@@ -444,6 +438,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil).
 			Once()
@@ -518,7 +513,6 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
@@ -615,7 +609,6 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
 		// Once for create, once during rollback check
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Setup expectations for updatePackages step - successful
@@ -694,7 +687,6 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		// Mock ListLocalBranches to return branches WITHOUT the target branch (so it gets created)
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Times(2)
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
@@ -706,6 +698,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// PR creation fails
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -793,7 +786,6 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
 		gitRepo.On("GetCurrentBranch", mock.Anything).Return("main", nil).Once()
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
@@ -857,7 +849,6 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Times(2)
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
@@ -866,6 +857,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil).
@@ -906,7 +898,6 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 
 		branchName := "release/v1.1.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
@@ -945,7 +936,6 @@ func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 		// Setup branch creation expectations (use mock.Anything for context)
 		branchName := "release/v1.0.0"
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
-		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)

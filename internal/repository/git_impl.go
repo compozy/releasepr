@@ -262,6 +262,15 @@ func (r *gitRepository) getGitEnv() []string {
 	return []string{"GIT_TERMINAL_PROMPT=0"}
 }
 
+// getWorkingDirectory returns the git repository working directory
+func (r *gitRepository) getWorkingDirectory() string {
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return "."
+	}
+	return worktree.Filesystem.Root()
+}
+
 // getAuthenticatedURL constructs a git remote URL with embedded credentials.
 // Returns the authenticated URL, the auth object (for sanitization), and any error.
 func (r *gitRepository) getAuthenticatedURL() (string, *http.BasicAuth, error) {
@@ -318,6 +327,7 @@ func (r *gitRepository) PushBranch(ctx context.Context, name string) error {
 	}
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", name, name)
 	cmd := exec.CommandContext(pushCtx, "git", "push", authURL, refSpec)
+	cmd.Dir = r.getWorkingDirectory()
 	cmd.Env = append(os.Environ(), r.getGitEnv()...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		sanitizedOutput := sanitizeOutput(string(output), authURL, auth)
@@ -338,6 +348,7 @@ func (r *gitRepository) PushBranchForce(ctx context.Context, name string) error 
 	}
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", name, name)
 	cmd := exec.CommandContext(pushCtx, "git", "push", "--force", authURL, refSpec)
+	cmd.Dir = r.getWorkingDirectory()
 	cmd.Env = append(os.Environ(), r.getGitEnv()...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		sanitizedOutput := sanitizeOutput(string(output), authURL, auth)
@@ -346,16 +357,17 @@ func (r *gitRepository) PushBranchForce(ctx context.Context, name string) error 
 	return nil
 }
 
-// CheckoutBranch switches to the specified branch.
-func (r *gitRepository) CheckoutBranch(_ context.Context, name string) error {
-	w, err := r.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
+// CheckoutBranch switches to the specified branch using native git for performance.
+func (r *gitRepository) CheckoutBranch(ctx context.Context, name string) error {
+	checkoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(checkoutCtx, "git", "checkout", name)
+	cmd.Dir = r.getWorkingDirectory()
+	cmd.Env = append(os.Environ(), r.getGitEnv()...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w (output: %s)", name, err, string(output))
 	}
-	return w.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName(name),
-		Force:  false,
-	})
+	return nil
 }
 
 // ConfigureUser sets the git user configuration.
@@ -432,52 +444,27 @@ func (r *gitRepository) DeleteRemoteBranch(ctx context.Context, name string) err
 }
 
 // RestoreFile restores a file to its state in HEAD.
-func (r *gitRepository) RestoreFile(_ context.Context, path string) error {
-	// Get HEAD commit
-	head, err := r.repo.Head()
-	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
-	}
-	commit, err := r.repo.CommitObject(head.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to get HEAD commit: %w", err)
-	}
-	// Get the file from HEAD commit
-	file, err := commit.File(path)
-	if err != nil {
-		return fmt.Errorf("failed to get file %s from HEAD: %w", path, err)
-	}
-	// Get file contents
-	contents, err := file.Contents()
-	if err != nil {
-		return fmt.Errorf("failed to get file contents: %w", err)
-	}
-	// Write the contents back to the working directory
-	err = os.WriteFile(path, []byte(contents), 0600)
-	if err != nil {
-		return fmt.Errorf("failed to restore file %s: %w", path, err)
+func (r *gitRepository) RestoreFile(ctx context.Context, path string) error {
+	restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(restoreCtx, "git", "checkout", "--", path)
+	cmd.Dir = r.getWorkingDirectory()
+	cmd.Env = append(os.Environ(), r.getGitEnv()...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to restore file %s: %w (output: %s)", path, err, string(output))
 	}
 	return nil
 }
 
 // ResetHard performs a hard reset to the specified reference.
-func (r *gitRepository) ResetHard(_ context.Context, ref string) error {
-	w, err := r.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-	// Resolve the reference
-	hash, err := r.repo.ResolveRevision(plumbing.Revision(ref))
-	if err != nil {
-		return fmt.Errorf("failed to resolve revision %s: %w", ref, err)
-	}
-	// Perform hard reset
-	err = w.Reset(&git.ResetOptions{
-		Commit: *hash,
-		Mode:   git.HardReset,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to reset to %s: %w", ref, err)
+func (r *gitRepository) ResetHard(ctx context.Context, ref string) error {
+	resetCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(resetCtx, "git", "reset", "--hard", ref)
+	cmd.Dir = r.getWorkingDirectory()
+	cmd.Env = append(os.Environ(), r.getGitEnv()...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reset to %s: %w (output: %s)", ref, err, string(output))
 	}
 	return nil
 }
