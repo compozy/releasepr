@@ -98,35 +98,46 @@ func (r *githubRepository) CreateOrUpdatePR(
 	head, base, title, body string,
 	labels []string,
 ) error {
+	fmt.Printf("CreateOrUpdatePR: owner=%s, repo=%s, head=%s, base=%s, title=%s\n",
+		r.owner, r.repo, head, base, title)
 	// First, try to find an existing PR
+	fmt.Printf("Listing existing PRs for %s:%s -> %s\n", r.owner, head, base)
 	prs, _, err := r.client.PullRequests.List(ctx, r.owner, r.repo, &github.PullRequestListOptions{
 		Head:  fmt.Sprintf("%s:%s", r.owner, head),
 		Base:  base,
 		State: "open",
 	})
 	if err != nil {
+		fmt.Printf("Failed to list pull requests: %v\n", err)
 		return fmt.Errorf("failed to list pull requests: %w", err)
 	}
+	fmt.Printf("Found %d existing PRs\n", len(prs))
 	if len(prs) > 0 {
 		// Update existing PR
 		pr := prs[0]
+		fmt.Printf("Updating existing PR #%d\n", pr.GetNumber())
 		_, _, err = r.client.PullRequests.Edit(ctx, r.owner, r.repo, pr.GetNumber(), &github.PullRequest{
 			Title: &title,
 			Body:  &body,
 		})
 		if err != nil {
+			fmt.Printf("Failed to update PR #%d: %v\n", pr.GetNumber(), err)
 			return fmt.Errorf("failed to update pull request: %w", err)
 		}
 		// Update labels
 		if len(labels) > 0 {
+			fmt.Printf("Adding labels to PR #%d: %v\n", pr.GetNumber(), labels)
 			_, _, err = r.client.Issues.AddLabelsToIssue(ctx, r.owner, r.repo, pr.GetNumber(), labels)
 			if err != nil {
+				fmt.Printf("Failed to add labels: %v\n", err)
 				return fmt.Errorf("failed to add labels: %w", err)
 			}
 		}
+		fmt.Printf("Successfully updated PR #%d\n", pr.GetNumber())
 		return nil
 	}
 	// Create new PR
+	fmt.Printf("Creating new PR: %s -> %s\n", head, base)
 	pr, _, err := r.client.PullRequests.Create(ctx, r.owner, r.repo, &github.NewPullRequest{
 		Title: &title,
 		Body:  &body,
@@ -134,15 +145,20 @@ func (r *githubRepository) CreateOrUpdatePR(
 		Base:  &base,
 	})
 	if err != nil {
+		fmt.Printf("Failed to create PR: %v\n", err)
 		return fmt.Errorf("failed to create pull request: %w", err)
 	}
+	fmt.Printf("Created PR #%d\n", pr.GetNumber())
 	// Add labels
 	if len(labels) > 0 {
+		fmt.Printf("Adding labels to new PR #%d: %v\n", pr.GetNumber(), labels)
 		_, _, err = r.client.Issues.AddLabelsToIssue(ctx, r.owner, r.repo, pr.GetNumber(), labels)
 		if err != nil {
+			fmt.Printf("Failed to add labels: %v\n", err)
 			return fmt.Errorf("failed to add labels: %w", err)
 		}
 	}
+	fmt.Printf("Successfully created PR #%d\n", pr.GetNumber())
 	return nil
 }
 

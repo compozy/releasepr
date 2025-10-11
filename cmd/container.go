@@ -87,25 +87,34 @@ func addOrchestratorCommands(c *container) error {
 	}
 
 	token := c.cfg.GithubToken
+	tokenSource := "config"
 	if token == "" {
+		// #nosec G101 -- false positive: this is reading env var, not a credential
 		token = os.Getenv("RELEASE_TOKEN")
+		if token != "" {
+			// #nosec G101 -- false positive: this is a diagnostic message, not a credential
+			tokenSource = "RELEASE_TOKEN env var"
+		}
 	}
 	owner := c.cfg.GithubOwner
 	repo := c.cfg.GithubRepo
+	fmt.Printf("GitHub configuration: owner=%s, repo=%s, token_source=%s, token_present=%t, token_length=%d\n",
+		owner, repo, tokenSource, token != "", len(token))
 	if owner == "" || repo == "" {
 		return fmt.Errorf("github owner/repo not configured; set GITHUB_REPOSITORY or config values")
 	}
-
 	var githubExtRepo repository.GithubExtendedRepository
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "GitHub token not provided; GitHub operations will be skipped")
 		githubExtRepo = repository.NewGithubNoopExtendedRepository(owner, repo)
 	} else {
+		fmt.Printf("Initializing GitHub extended repository with token (length=%d)\n", len(token))
 		var err error
 		githubExtRepo, err = repository.NewGithubExtendedRepository(token, owner, repo)
 		if err != nil {
 			return fmt.Errorf("failed to initialize GitHub extended repository: %w", err)
 		}
+		fmt.Printf("Successfully initialized GitHub extended repository for %s/%s\n", owner, repo)
 	}
 
 	// Create PR Release orchestrator

@@ -53,12 +53,30 @@ func ValidateBranchName(branch string) error {
 func ValidateEnvironmentVariables(requiredVars []string) error {
 	var missing []string
 	for _, v := range requiredVars {
-		if value := os.Getenv(v); value == "" {
+		value := os.Getenv(v)
+		fmt.Printf("Checking environment variable %s: present=%t, length=%d\n", v, value != "", len(value))
+		if value == "" {
 			missing = append(missing, v)
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+		// Also check alternative token sources for better diagnostics
+		altSources := []string{"PR_RELEASE_GITHUB_TOKEN", "COMPOZY_RELEASE_GITHUB_TOKEN", "RELEASE_TOKEN"}
+		var available []string
+		for _, alt := range altSources {
+			if os.Getenv(alt) != "" {
+				available = append(available, alt)
+			}
+		}
+		errMsg := fmt.Sprintf("missing required environment variables: %s", strings.Join(missing, ", "))
+		if len(available) > 0 {
+			errMsg += fmt.Sprintf(
+				" (note: found alternative sources: %s, but direct %s is required)",
+				strings.Join(available, ", "),
+				strings.Join(missing, ", "),
+			)
+		}
+		return fmt.Errorf("%s", errMsg)
 	}
 	return nil
 }
