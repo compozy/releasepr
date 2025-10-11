@@ -112,5 +112,8 @@ func Sync(log *zap.Logger) error {
 	if errors.Is(err, syscall.EINVAL) {
 		return nil
 	}
+	if errors.Is(err, syscall.EBADF) {
+		return nil
+	}
 	return err
 }

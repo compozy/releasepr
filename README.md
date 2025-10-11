@@ -25,7 +25,7 @@ Example configuration file:
 ```yaml
 # .pr-release.yaml
 
-github_token: "ghp_your_token"   # Optional; falls back to environment variables
+github_token: "ghp_your_token" # Optional; falls back to environment variables
 # github_owner and github_repo automatically default to the detected repository
 # tools_dir defaults to "tools"
 # npm_token is required only when publishing packages
@@ -36,24 +36,24 @@ tools_dir: "tools"
 
 ### Environment Variables
 
-| Variable | Description | Required |
-| --- | --- | --- |
-| `GITHUB_TOKEN`, `PR_RELEASE_GITHUB_TOKEN`, `COMPOZY_RELEASE_GITHUB_TOKEN`, `RELEASE_TOKEN` | GitHub token used for API calls | Only for GitHub operations |
-| `GITHUB_REPOSITORY` | `<owner>/<repo>` slug. Highest priority for repository detection | No |
-| `GITHUB_OWNER`, `GITHUB_REPOSITORY_OWNER`, `PR_RELEASE_GITHUB_OWNER`, `COMPOZY_RELEASE_GITHUB_OWNER` | Explicit owner override | No |
-| `GITHUB_REPOSITORY_NAME`, `PR_RELEASE_GITHUB_REPO`, `COMPOZY_RELEASE_GITHUB_REPO` | Explicit repository name override | No |
-| `TOOLS_DIR`, `PR_RELEASE_TOOLS_DIR`, `COMPOZY_RELEASE_TOOLS_DIR` | Directory containing NPM workspaces | No (defaults to `tools`) |
-| `NPM_TOKEN`, `PR_RELEASE_NPM_TOKEN`, `COMPOZY_RELEASE_NPM_TOKEN` | Token for publishing to NPM | Required for publishing |
+| Variable                                                                                             | Description                                                      | Required                   |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------- |
+| `GITHUB_TOKEN`, `PR_RELEASE_GITHUB_TOKEN`, `COMPOZY_RELEASE_GITHUB_TOKEN`, `RELEASE_TOKEN`           | GitHub token used for API calls                                  | Only for GitHub operations |
+| `GITHUB_REPOSITORY`                                                                                  | `<owner>/<repo>` slug. Highest priority for repository detection | No                         |
+| `GITHUB_OWNER`, `GITHUB_REPOSITORY_OWNER`, `PR_RELEASE_GITHUB_OWNER`, `COMPOZY_RELEASE_GITHUB_OWNER` | Explicit owner override                                          | No                         |
+| `GITHUB_REPOSITORY_NAME`, `PR_RELEASE_GITHUB_REPO`, `COMPOZY_RELEASE_GITHUB_REPO`                    | Explicit repository name override                                | No                         |
+| `TOOLS_DIR`, `PR_RELEASE_TOOLS_DIR`, `COMPOZY_RELEASE_TOOLS_DIR`                                     | Directory containing NPM workspaces                              | No (defaults to `tools`)   |
+| `NPM_TOKEN`, `PR_RELEASE_NPM_TOKEN`, `COMPOZY_RELEASE_NPM_TOKEN`                                     | Token for publishing to NPM                                      | Required for publishing    |
 
 ## Commands
 
 The CLI is built with Cobra and exposes the following commands:
 
-| Command | Description |
-| --- | --- |
-| `pr-release` | Run the full release orchestration workflow |
-| `dry-run` | Execute release steps without pushing or opening PRs |
-| `version` | Print build metadata |
+| Command      | Description                                          |
+| ------------ | ---------------------------------------------------- |
+| `pr-release` | Run the full release orchestration workflow          |
+| `dry-run`    | Execute release steps without pushing or opening PRs |
+| `version`    | Print build metadata                                 |
 
 Run `go run . <command> --help` for detailed flags.
 
@@ -71,7 +71,7 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64) ARCH="x86_64" ;;
   amd64) ARCH="x86_64" ;;
-  arm64|aarch64) ARCH="arm64" ;;
+  arm64 | aarch64) ARCH="arm64" ;;
   *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
 esac
 
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
+          go-version: "1.25.2"
       - name: Run pr-release dry run
         run: go run . pr-release --dry-run --ci-output
 ```
@@ -132,11 +132,11 @@ jobs:
 
 The release workflow relies on additional secrets when running in CI:
 
-| Secret | Purpose |
-| --- | --- |
+| Secret           | Purpose                    |
+| ---------------- | -------------------------- |
 | `GORELEASER_KEY` | GoReleaser Pro license key |
-| `AUR_KEY` | AUR publishing |
-| `NPM_TOKEN` | Publish packages to npm |
+| `AUR_KEY`        | AUR publishing             |
+| `NPM_TOKEN`      | Publish packages to npm    |
 
 ## GitHub Actions
 

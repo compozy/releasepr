@@ -69,10 +69,7 @@ func InitCommands() error {
 	if err != nil {
 		return err
 	}
-	ctx := rootCmd.Context()
-	if ctx == nil {
-		return fmt.Errorf("root command context not initialized")
-	}
+	ctx := context.Background()
 	ctx = config.IntoContext(ctx, c.cfg)
 	appLogger, err := logger.New(c.cfg.LoggerConfig())
 	if err != nil {
