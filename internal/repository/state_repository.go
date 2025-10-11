@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
+	"go.uber.org/zap"
 )
 
 const (
@@ -59,6 +61,10 @@ type JSONStateRepository struct {
 	mu       sync.RWMutex
 }
 
+func (r *JSONStateRepository) logger(ctx context.Context) *zap.Logger {
+	return logger.FromContext(ctx).Named("repository.state").With(zap.String("state_dir", r.stateDir))
+}
+
 // NewJSONStateRepository creates a new JSON-based state repository
 func NewJSONStateRepository(fs afero.Fs, stateDir string) StateRepository {
 	if stateDir == "" {
@@ -72,6 +78,7 @@ func NewJSONStateRepository(fs afero.Fs, stateDir string) StateRepository {
 
 // Save persists the rollback state to a JSON file with proper locking
 func (r *JSONStateRepository) Save(ctx context.Context, state *domain.RollbackState) error {
+	log := r.logger(ctx)
 	if err := r.ensureStateDir(); err != nil {
 		return fmt.Errorf("failed to ensure state directory: %w", err)
 	}
@@ -90,8 +97,7 @@ func (r *JSONStateRepository) Save(ctx context.Context, state *domain.RollbackSt
 	}
 	defer func() {
 		if unlockErr := lock.Unlock(); unlockErr != nil {
-			// Log error but don't fail the operation
-			fmt.Fprintf(os.Stderr, "warning: failed to unlock file: %v\n", unlockErr)
+			log.Warn("Failed to unlock state file", zap.Error(unlockErr))
 		}
 	}()
 	// Create state wrapper with metadata
@@ -123,13 +129,12 @@ func (r *JSONStateRepository) Save(ctx context.Context, state *domain.RollbackSt
 	if err := r.fs.Rename(tempFile, filename); err != nil {
 		// Clean up temp file on error
 		if removeErr := r.fs.Remove(tempFile); removeErr != nil {
-			// Log but don't fail - temp file cleanup is best effort
-			fmt.Fprintf(os.Stderr, "warning: failed to remove temp file: %v\n", removeErr)
+			log.Warn("Failed to remove temp state file", zap.String("file", tempFile), zap.Error(removeErr))
 		}
 		return fmt.Errorf("failed to rename state file: %w", err)
 	}
 	// Update latest link
-	if err := r.updateLatestLink(filename); err != nil {
+	if err := r.updateLatestLink(ctx, filename); err != nil {
 		return fmt.Errorf("failed to update latest link: %w", err)
 	}
 	return nil
@@ -137,6 +142,7 @@ func (r *JSONStateRepository) Save(ctx context.Context, state *domain.RollbackSt
 
 // Load retrieves a specific rollback state by session ID with validation
 func (r *JSONStateRepository) Load(ctx context.Context, sessionID string) (*domain.RollbackState, error) {
+	log := r.logger(ctx)
 	filename := r.getStateFilename(sessionID)
 	lockFile := r.getLockFilename(sessionID)
 	// Acquire shared lock for reading
@@ -152,8 +158,7 @@ func (r *JSONStateRepository) Load(ctx context.Context, sessionID string) (*doma
 	}
 	defer func() {
 		if unlockErr := lock.Unlock(); unlockErr != nil {
-			// Log error but don't fail the operation
-			fmt.Fprintf(os.Stderr, "warning: failed to unlock file: %v\n", unlockErr)
+			log.Warn("Failed to unlock state file", zap.Error(unlockErr))
 		}
 	}()
 	// Read state file
@@ -211,6 +216,7 @@ func (r *JSONStateRepository) LoadLatest(ctx context.Context) (*domain.RollbackS
 
 // Delete removes a rollback state
 func (r *JSONStateRepository) Delete(ctx context.Context, sessionID string) error {
+	log := r.logger(ctx)
 	filename := r.getStateFilename(sessionID)
 	lockFile := r.getLockFilename(sessionID)
 	// Acquire exclusive lock for deletion
@@ -226,8 +232,7 @@ func (r *JSONStateRepository) Delete(ctx context.Context, sessionID string) erro
 	}
 	defer func() {
 		if unlockErr := lock.Unlock(); unlockErr != nil {
-			// Log error but don't fail the operation
-			fmt.Fprintf(os.Stderr, "warning: failed to unlock file: %v\n", unlockErr)
+			log.Warn("Failed to unlock state file", zap.Error(unlockErr))
 		}
 	}()
 	// Remove state file
@@ -236,8 +241,7 @@ func (r *JSONStateRepository) Delete(ctx context.Context, sessionID string) erro
 	}
 	// Clean up lock file
 	if removeErr := r.fs.Remove(lockFile); removeErr != nil && !os.IsNotExist(removeErr) {
-		// Log but don't fail - lock file cleanup is best effort
-		fmt.Fprintf(os.Stderr, "warning: failed to remove lock file: %v\n", removeErr)
+		log.Warn("Failed to remove lock file", zap.Error(removeErr))
 	}
 	return nil
 }
@@ -322,9 +326,10 @@ func (r *JSONStateRepository) getLatestLink() string {
 }
 
 // updateLatestLink updates the link pointing to the latest state
-func (r *JSONStateRepository) updateLatestLink(target string) error {
+func (r *JSONStateRepository) updateLatestLink(ctx context.Context, target string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	log := r.logger(ctx)
 	link := r.getLatestLink()
 	tempLink := link + ".tmp"
 	if err := afero.WriteFile(r.fs, tempLink, []byte(target), StateFilePermissions); err != nil {
@@ -332,8 +337,7 @@ func (r *JSONStateRepository) updateLatestLink(target string) error {
 	}
 	if err := r.fs.Rename(tempLink, link); err != nil {
 		if removeErr := r.fs.Remove(tempLink); removeErr != nil {
-			// Log but don't fail - temp link cleanup is best effort
-			fmt.Fprintf(os.Stderr, "warning: failed to remove temp link: %v\n", removeErr)
+			log.Warn("Failed to remove temp latest link", zap.Error(removeErr))
 		}
 		return fmt.Errorf("failed to update latest link: %w", err)
 	}

@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/service"
 	"github.com/compozy/releasepr/internal/usecase"
 	"github.com/sethvargo/go-retry"
 	"github.com/spf13/afero"
+	"go.uber.org/zap"
 )
 
 // PRReleaseConfig contains configuration for PR release workflow.
@@ -56,6 +58,25 @@ func NewPRReleaseOrchestrator(
 	}
 }
 
+func (o *PRReleaseOrchestrator) logger(ctx context.Context) *zap.Logger {
+	return logger.FromContext(ctx).Named("orchestrator.pr_release")
+}
+
+func (o *PRReleaseOrchestrator) logCI(ctx context.Context, ciOutput bool, fields ...zap.Field) {
+	if !ciOutput {
+		return
+	}
+	o.logger(ctx).Info("ci_output", fields...)
+}
+
+func (o *PRReleaseOrchestrator) logStatus(ctx context.Context, ciOutput bool, message string) {
+	if ciOutput {
+		o.logger(ctx).Info("ci_status", zap.String("message", message))
+		return
+	}
+	o.logger(ctx).Info(message)
+}
+
 // Execute runs the complete PR release workflow.
 func (o *PRReleaseOrchestrator) Execute(ctx context.Context, cfg PRReleaseConfig) error {
 	// Handle rollback operation
@@ -78,7 +99,7 @@ func (o *PRReleaseOrchestrator) executeLegacy(ctx context.Context, cfg PRRelease
 	ctx, cancel := context.WithTimeout(ctx, DefaultWorkflowTimeout)
 	defer cancel()
 	// Validate required environment variables for GitHub operations
-	if err := ValidateEnvironmentVariables([]string{"GITHUB_TOKEN"}); err != nil {
+	if err := ValidateEnvironmentVariables(ctx, []string{"GITHUB_TOKEN"}); err != nil {
 		return fmt.Errorf("environment validation failed: %w", err)
 	}
 	// Step 1: Check for changes
@@ -86,10 +107,10 @@ func (o *PRReleaseOrchestrator) executeLegacy(ctx context.Context, cfg PRRelease
 	if err != nil {
 		return fmt.Errorf("failed to check changes: %w", err)
 	}
-	o.printCIOutput(cfg.CIOutput, "has_changes=%t\n", hasChanges)
-	o.printCIOutput(cfg.CIOutput, "latest_tag=%s\n", latestTag)
+	o.logCI(ctx, cfg.CIOutput, zap.Bool("has_changes", hasChanges))
+	o.logCI(ctx, cfg.CIOutput, zap.String("latest_tag", latestTag))
 	if !hasChanges && !cfg.ForceRelease {
-		o.printStatus(cfg.CIOutput, "No changes detected since last release")
+		o.logStatus(ctx, cfg.CIOutput, "No changes detected since last release")
 		return nil
 	}
 	// Step 2: Calculate version and prepare branch
@@ -115,7 +136,7 @@ func (o *PRReleaseOrchestrator) prepareRelease(
 	if err := ValidateVersion(version); err != nil {
 		return "", "", fmt.Errorf("invalid version: %w", err)
 	}
-	o.printCIOutput(ciOutput, "version=%s\n", version)
+	o.logCI(ctx, ciOutput, zap.String("version", version))
 	branchName := fmt.Sprintf("release/%s", version)
 	// Validate branch name
 	if err := ValidateBranchName(branchName); err != nil {
@@ -147,7 +168,7 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 
 	// Dry-run: stop here so no commit, push or PR is made.
 	if cfg.DryRun {
-		o.printStatus(cfg.CIOutput,
+		o.logStatus(ctx, cfg.CIOutput,
 			fmt.Sprintf("🛈 Dry-run complete – release %s prepared locally (no commit/push/PR).", version))
 		return nil
 	}
@@ -163,22 +184,8 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 			return fmt.Errorf("failed to create pull request: %w", err)
 		}
 	}
-	o.printStatus(cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", version))
+	o.logStatus(ctx, cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", version))
 	return nil
-}
-
-// printCIOutput prints output in CI format if enabled
-func (o *PRReleaseOrchestrator) printCIOutput(ciOutput bool, format string, args ...any) {
-	if ciOutput {
-		fmt.Printf(format, args...)
-	}
-}
-
-// printStatus prints status messages when not in CI mode
-func (o *PRReleaseOrchestrator) printStatus(ciOutput bool, message string) {
-	if !ciOutput {
-		fmt.Println(message)
-	}
 }
 
 func (o *PRReleaseOrchestrator) checkChanges(ctx context.Context) (bool, string, error) {
@@ -221,15 +228,19 @@ func (o *PRReleaseOrchestrator) updatePackageVersions(_ context.Context, version
 		if err != nil {
 			return fmt.Errorf("failed to read root package.json: %w", err)
 		}
-		var pkg domain.Package
+		// Use map to preserve all existing fields
+		var pkg map[string]any
 		if err := json.Unmarshal(data, &pkg); err != nil {
 			return fmt.Errorf("failed to parse root package.json: %w", err)
 		}
-		pkg.Version = versionWithoutV
+		// Update only the version field
+		pkg["version"] = versionWithoutV
 		newData, err := json.MarshalIndent(pkg, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to serialize root package.json: %w", err)
 		}
+		// Add trailing newline to match standard JSON formatting
+		newData = append(newData, '\n')
 		if err := afero.WriteFile(o.fsRepo, "package.json", newData, FilePermissionsReadWrite); err != nil {
 			return fmt.Errorf("failed to write root package.json: %w", err)
 		}
@@ -315,7 +326,7 @@ func (o *PRReleaseOrchestrator) executeWithSaga(ctx context.Context, cfg PRRelea
 	defer cancel()
 
 	// Validate required environment variables
-	if err := ValidateEnvironmentVariables([]string{"GITHUB_TOKEN"}); err != nil {
+	if err := ValidateEnvironmentVariables(ctx, []string{"GITHUB_TOKEN"}); err != nil {
 		return fmt.Errorf("environment validation failed: %w", err)
 	}
 
@@ -373,7 +384,7 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 		return fmt.Errorf("workflow failed: %w", err)
 	}
 
-	o.printStatus(cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", wctx.version))
+	o.logStatus(ctx, cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", wctx.version))
 	return nil
 }
 
@@ -403,8 +414,8 @@ func (o *PRReleaseOrchestrator) addCheckChangesStep(
 			if err != nil {
 				return nil, fmt.Errorf("failed to check changes: %w", err)
 			}
-			o.printCIOutput(cfg.CIOutput, "has_changes=%t\n", wctx.hasChanges)
-			o.printCIOutput(cfg.CIOutput, "latest_tag=%s\n", wctx.latestTag)
+			o.logCI(ctx, cfg.CIOutput, zap.Bool("has_changes", wctx.hasChanges))
+			o.logCI(ctx, cfg.CIOutput, zap.String("latest_tag", wctx.latestTag))
 			return map[string]any{
 				"has_changes": wctx.hasChanges,
 				"latest_tag":  wctx.latestTag,
@@ -425,22 +436,22 @@ func (o *PRReleaseOrchestrator) addCalculateVersionStep(
 		Type: domain.OperationTypeCalculateVersion,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if !wctx.hasChanges && !cfg.ForceRelease {
-				o.printStatus(cfg.CIOutput, "No changes detected since last release")
+				o.logStatus(ctx, cfg.CIOutput, "No changes detected since last release")
 				return map[string]any{"skip": true}, nil
 			}
-			fmt.Printf("Calculating version from latest tag: %s\n", wctx.latestTag)
+			o.logger(ctx).Info("Calculating version", zap.String("latest_tag", wctx.latestTag))
 			var err error
 			wctx.version, err = o.calculateVersion(ctx, wctx.latestTag)
 			if err != nil {
-				fmt.Printf("Failed to calculate version: %v\n", err)
+				o.logger(ctx).Error("Failed to calculate version", zap.Error(err))
 				return nil, fmt.Errorf("failed to calculate version: %w", err)
 			}
 			if err := ValidateVersion(wctx.version); err != nil {
-				fmt.Printf("Invalid version %s: %v\n", wctx.version, err)
+				o.logger(ctx).Error("Invalid version", zap.String("version", wctx.version), zap.Error(err))
 				return nil, fmt.Errorf("invalid version: %w", err)
 			}
-			fmt.Printf("Calculated version: %s\n", wctx.version)
-			o.printCIOutput(cfg.CIOutput, "version=%s\n", wctx.version)
+			o.logger(ctx).Info("Calculated version", zap.String("version", wctx.version))
+			o.logCI(ctx, cfg.CIOutput, zap.String("version", wctx.version))
 			saga.SetVersion(wctx.version)
 			return map[string]any{"version": wctx.version}, nil
 		},
@@ -462,7 +473,7 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 				return map[string]any{"skip": true}, nil
 			}
 			wctx.branchName = fmt.Sprintf("release/%s", wctx.version)
-			fmt.Printf("branch_name=%s\n", wctx.branchName)
+			o.logger(ctx).Info("Determined release branch", zap.String("branch", wctx.branchName))
 			if err := ValidateBranchName(wctx.branchName); err != nil {
 				return nil, fmt.Errorf("invalid branch name: %w", err)
 			}
@@ -479,13 +490,18 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 			remoteExists := slices.Contains(remoteBranches, fmt.Sprintf("origin/%s", wctx.branchName))
 			switch {
 			case branchExists && remoteExists:
-				fmt.Printf("Branch %s exists both locally and remotely, reusing it\n", wctx.branchName)
+				o.logger(ctx).Info(
+					"Reusing existing branch",
+					zap.String("branch", wctx.branchName),
+					zap.Bool("local", true),
+					zap.Bool("remote", true),
+				)
 			case branchExists:
-				fmt.Printf("Branch %s exists locally, checking out\n", wctx.branchName)
+				o.logger(ctx).Info("Checking out existing local branch", zap.String("branch", wctx.branchName))
 			case remoteExists:
-				fmt.Printf("Branch %s exists remotely, checking out from remote\n", wctx.branchName)
+				o.logger(ctx).Info("Checking out remote branch", zap.String("branch", wctx.branchName))
 			default:
-				fmt.Printf("Creating new branch %s\n", wctx.branchName)
+				o.logger(ctx).Info("Creating new branch", zap.String("branch", wctx.branchName))
 			}
 			wctx.createdInSession = !branchExists
 			if wctx.createdInSession {
@@ -496,7 +512,7 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 			if err := o.gitRepo.CheckoutBranch(ctx, wctx.branchName); err != nil {
 				return nil, fmt.Errorf("failed to checkout release branch %s: %w", wctx.branchName, err)
 			}
-			fmt.Printf("Successfully checked out branch %s\n", wctx.branchName)
+			o.logger(ctx).Info("Checked out release branch", zap.String("branch", wctx.branchName))
 			return map[string]any{
 				"branch_name":        wctx.branchName,
 				"original_branch":    originalBranch,
@@ -520,12 +536,12 @@ func (o *PRReleaseOrchestrator) addUpdatePackagesStep(
 			if wctx.version == "" {
 				return map[string]any{"skip": true}, nil
 			}
-			fmt.Printf("Updating package versions to %s\n", wctx.version)
+			o.logger(ctx).Info("Updating package versions", zap.String("version", wctx.version))
 			if err := o.updatePackageVersions(ctx, wctx.version); err != nil {
-				fmt.Printf("Failed to update package versions: %v\n", err)
+				o.logger(ctx).Error("Failed to update package versions", zap.Error(err))
 				return nil, fmt.Errorf("failed to update package versions: %w", err)
 			}
-			fmt.Printf("Successfully updated package versions\n")
+			o.logger(ctx).Info("Updated package versions", zap.String("version", wctx.version))
 			return map[string]any{
 				"modified_files": []string{
 					"package.json",
@@ -549,13 +565,13 @@ func (o *PRReleaseOrchestrator) addGenerateChangelogStep(
 			if wctx.version == "" {
 				return map[string]any{"skip": true}, nil
 			}
-			fmt.Printf("Generating changelog for version %s\n", wctx.version)
+			o.logger(ctx).Info("Generating changelog", zap.String("version", wctx.version))
 			changelog, err := o.generateChangelog(ctx, wctx.version, "unreleased")
 			if err != nil {
-				fmt.Printf("Failed to generate changelog: %v\n", err)
+				o.logger(ctx).Error("Failed to generate changelog", zap.Error(err))
 				return nil, fmt.Errorf("failed to generate changelog: %w", err)
 			}
-			fmt.Printf("Successfully generated changelog\n")
+			o.logger(ctx).Info("Generated changelog", zap.String("version", wctx.version))
 			return map[string]any{
 				"modified_files": []string{
 					"CHANGELOG.md",
@@ -580,12 +596,12 @@ func (o *PRReleaseOrchestrator) addCommitChangesStep(
 			if wctx.version == "" {
 				return map[string]any{"skip": true}, nil
 			}
-			fmt.Printf("Committing changes for version %s\n", wctx.version)
+			o.logger(ctx).Info("Committing changes", zap.String("version", wctx.version))
 			if err := o.commitChanges(ctx, wctx.version); err != nil {
-				fmt.Printf("Failed to commit changes: %v\n", err)
+				o.logger(ctx).Error("Failed to commit changes", zap.Error(err))
 				return nil, fmt.Errorf("failed to commit changes: %w", err)
 			}
-			fmt.Printf("Successfully committed changes\n")
+			o.logger(ctx).Info("Committed changes", zap.String("version", wctx.version))
 			return map[string]any{
 				"commit_sha": "HEAD",
 			}, nil
@@ -610,17 +626,17 @@ func (o *PRReleaseOrchestrator) addPushBranchStep(
 			// Use force push for existing branches to handle non-fast-forward updates
 			var err error
 			if wctx.createdInSession {
-				fmt.Printf("Pushing new branch %s to remote\n", wctx.branchName)
+				o.logger(ctx).Info("Pushing new branch", zap.String("branch", wctx.branchName))
 				err = o.gitRepo.PushBranch(ctx, wctx.branchName)
 			} else {
-				fmt.Printf("Force pushing existing branch %s to remote\n", wctx.branchName)
+				o.logger(ctx).Info("Force pushing branch", zap.String("branch", wctx.branchName))
 				err = o.gitRepo.PushBranchForce(ctx, wctx.branchName)
 			}
 			if err != nil {
-				fmt.Printf("Failed to push branch %s: %v\n", wctx.branchName, err)
+				o.logger(ctx).Error("Failed to push branch", zap.String("branch", wctx.branchName), zap.Error(err))
 				return nil, fmt.Errorf("failed to push branch %s: %w", wctx.branchName, err)
 			}
-			fmt.Printf("Successfully pushed branch %s\n", wctx.branchName)
+			o.logger(ctx).Info("Pushed branch", zap.String("branch", wctx.branchName))
 			return map[string]any{
 				"pushed":      true,
 				"branch_name": wctx.branchName,
@@ -643,15 +659,15 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 			if wctx.version == "" || cfg.SkipPR || cfg.DryRun {
 				return map[string]any{"skip": true}, nil
 			}
-			fmt.Printf("Preparing PR for version %s\n", wctx.version)
+			o.logger(ctx).Info("Preparing pull request", zap.String("version", wctx.version))
 			changelog, err := o.generateChangelog(ctx, wctx.version, "unreleased")
 			if err != nil {
-				fmt.Printf("Failed to get changelog for PR: %v\n", err)
+				o.logger(ctx).Error("Failed to generate changelog for PR", zap.Error(err))
 				return nil, fmt.Errorf("failed to get changelog for PR: %w", err)
 			}
 			ver, err := domain.NewVersion(wctx.version)
 			if err != nil {
-				fmt.Printf("Failed to parse version: %v\n", err)
+				o.logger(ctx).Error("Failed to parse version", zap.String("version", wctx.version), zap.Error(err))
 				return nil, fmt.Errorf("failed to parse version: %w", err)
 			}
 			release := &domain.Release{
@@ -661,12 +677,17 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 			uc := &usecase.PreparePRBodyUseCase{}
 			body, err := uc.Execute(ctx, release)
 			if err != nil {
-				fmt.Printf("Failed to prepare PR body: %v\n", err)
+				o.logger(ctx).Error("Failed to prepare PR body", zap.Error(err))
 				return nil, fmt.Errorf("failed to prepare PR body: %w", err)
 			}
 			title := fmt.Sprintf("ci(release): Release %s", wctx.version)
 			labels := []string{"release-pending", "automated"}
-			fmt.Printf("Creating/updating PR: %s -> main (title: %s)\n", wctx.branchName, title)
+			o.logger(ctx).Info("Creating or updating pull request",
+				zap.String("branch", wctx.branchName),
+				zap.String("base", "main"),
+				zap.String("title", title),
+				zap.Strings("labels", labels),
+			)
 			err = retry.Do(
 				ctx,
 				retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay)),
@@ -675,10 +696,10 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				},
 			)
 			if err != nil {
-				fmt.Printf("Failed to create or update PR: %v\n", err)
+				o.logger(ctx).Error("Failed to create or update PR", zap.Error(err))
 				return nil, fmt.Errorf("failed to create or update PR from %s to main: %w", wctx.branchName, err)
 			}
-			fmt.Printf("Successfully created/updated PR\n")
+			o.logger(ctx).Info("Created or updated pull request", zap.String("branch", wctx.branchName))
 			wctx.prNumber = 0 // Placeholder since CreateOrUpdatePR doesn't return PR number
 			return map[string]any{
 				"pr_number": wctx.prNumber,
@@ -717,7 +738,7 @@ func (o *PRReleaseOrchestrator) performRollback(ctx context.Context, sessionID s
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 
-	fmt.Println("✅ Rollback completed successfully")
+	o.logger(ctx).Info("Rollback completed successfully")
 	return nil
 }
 

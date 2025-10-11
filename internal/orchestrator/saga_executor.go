@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/google/uuid"
 	"github.com/sethvargo/go-retry"
+	"go.uber.org/zap"
 )
 
 // SagaStep represents a single step in the saga workflow
@@ -25,6 +27,10 @@ type SagaExecutor struct {
 	state          *domain.RollbackState
 	steps          []SagaStep
 	enableRollback bool
+}
+
+func (s *SagaExecutor) logger(ctx context.Context) *zap.Logger {
+	return logger.FromContext(ctx).Named("orchestrator.saga_executor").With(zap.String("session_id", s.sessionID))
 }
 
 // NewSagaExecutor creates a new saga executor
@@ -77,8 +83,7 @@ func (s *SagaExecutor) Execute(ctx context.Context) error {
 			s.state.MarkOperationFailed(step.Type, err)
 			if s.enableRollback {
 				if saveErr := s.saveState(ctx); saveErr != nil {
-					// Log but don't fail - best effort save
-					fmt.Printf("Warning: failed to save state before rollback: %v\n", saveErr)
+					s.logger(ctx).Warn("Failed to save state before rollback", zap.Error(saveErr))
 				}
 				// Create separate context for rollback to ensure it completes
 				rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)
@@ -95,8 +100,7 @@ func (s *SagaExecutor) Execute(ctx context.Context) error {
 	s.state.Status = domain.WorkflowStatusCompleted
 	if s.enableRollback {
 		if saveErr := s.saveState(ctx); saveErr != nil {
-			// Log but don't fail - best effort save at completion
-			fmt.Printf("Warning: failed to save final state: %v\n", saveErr)
+			s.logger(ctx).Warn("Failed to save final state", zap.Error(saveErr))
 		}
 	}
 	return nil
@@ -107,8 +111,7 @@ func (s *SagaExecutor) executeStep(ctx context.Context, step SagaStep) error {
 	s.state.MarkOperationStarted(step.Type)
 	if s.enableRollback {
 		if saveErr := s.saveState(ctx); saveErr != nil {
-			// Log but don't fail - best effort save
-			fmt.Printf("Warning: failed to save state after marking operation started: %v\n", saveErr)
+			s.logger(ctx).Warn("Failed to save state after marking operation started", zap.Error(saveErr))
 		}
 	}
 	var rollbackData map[string]any
@@ -133,8 +136,7 @@ func (s *SagaExecutor) executeStep(ctx context.Context, step SagaStep) error {
 	s.state.MarkOperationCompleted(step.Type, rollbackData)
 	if s.enableRollback {
 		if saveErr := s.saveState(ctx); saveErr != nil {
-			// Log but don't fail - best effort save
-			fmt.Printf("Warning: failed to save state after marking operation completed: %v\n", saveErr)
+			s.logger(ctx).Warn("Failed to save state after marking operation completed", zap.Error(saveErr))
 		}
 	}
 	return nil
@@ -147,10 +149,11 @@ func (s *SagaExecutor) Rollback(ctx context.Context) error {
 
 // rollback internal implementation
 func (s *SagaExecutor) rollback(ctx context.Context) error {
-	fmt.Println("🔄 Starting rollback process...")
+	log := s.logger(ctx)
+	log.Info("Starting rollback process")
 	completedOps := s.state.GetCompletedOperations()
 	if len(completedOps) == 0 {
-		fmt.Println("No operations to rollback")
+		log.Info("No operations to rollback")
 		return nil
 	}
 	for _, op := range completedOps {
@@ -164,26 +167,24 @@ func (s *SagaExecutor) rollback(ctx context.Context) error {
 		if step == nil || step.Compensate == nil {
 			continue
 		}
-		fmt.Printf("Rolling back: %s\n", step.Name)
+		log.Info("Rolling back step", zap.String("step", step.Name))
 		if err := s.executeCompensation(ctx, step, op.RollbackData); err != nil {
-			fmt.Printf("Failed to rollback %s: %v\n", step.Name, err)
+			log.Error("Failed to rollback step", zap.String("step", step.Name), zap.Error(err))
 			return fmt.Errorf("rollback failed for %s: %w", step.Name, err)
 		}
 		if s.enableRollback {
 			if saveErr := s.saveState(ctx); saveErr != nil {
-				// Log but don't fail - best effort save during rollback
-				fmt.Printf("Warning: failed to save state during rollback: %v\n", saveErr)
+				log.Warn("Failed to save state during rollback", zap.Error(saveErr))
 			}
 		}
 	}
 	s.state.Status = domain.WorkflowStatusRolledBack
 	if s.enableRollback {
 		if saveErr := s.saveState(ctx); saveErr != nil {
-			// Log but don't fail - best effort save after rollback
-			fmt.Printf("Warning: failed to save state after rollback: %v\n", saveErr)
+			log.Warn("Failed to save state after rollback", zap.Error(saveErr))
 		}
 	}
-	fmt.Println("✅ Rollback completed successfully")
+	log.Info("Rollback completed successfully")
 	return nil
 }
 

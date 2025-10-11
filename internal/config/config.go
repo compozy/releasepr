@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/go-git/go-git/v5"
 	"github.com/spf13/viper"
 )
@@ -17,13 +18,15 @@ type Config struct {
 	GithubRepo  string `mapstructure:"github_repo"`
 	ToolsDir    string `mapstructure:"tools_dir"`
 	NpmToken    string `mapstructure:"npm_token"`
+	LogLevel    string `mapstructure:"log_level"`
+	LogFormat   string `mapstructure:"log_format"`
 }
 
 var configFileCandidates = []string{".pr-release", ".compozy-release"}
 
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() *Config {
-	return &Config{ToolsDir: "tools"}
+	return &Config{ToolsDir: "tools", LogLevel: "info", LogFormat: "json"}
 }
 
 // Validate validates the configuration.
@@ -42,7 +45,33 @@ func (c *Config) Validate() error {
 	if strings.Contains(c.ToolsDir, "..") {
 		return fmt.Errorf("tools_dir contains invalid path traversal")
 	}
+	if err := validateLogLevel(c.LogLevel); err != nil {
+		return err
+	}
+	if err := validateLogFormat(c.LogFormat); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (c *Config) LoggerConfig() logger.Config {
+	return logger.Config{Level: c.LogLevel, Format: c.LogFormat}
+}
+
+func validateLogLevel(level string) error {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug", "info", "warn", "error":
+		return nil
+	}
+	return fmt.Errorf("invalid log_level: %s", level)
+}
+
+func validateLogFormat(format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "json", "console":
+		return nil
+	}
+	return fmt.Errorf("invalid log_format: %s", format)
 }
 
 // ValidateForGitHubOperations validates that GitHub token is present for operations that require it.
@@ -97,6 +126,8 @@ func LoadConfig() (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
+	v.SetDefault("log_level", "info")
+	v.SetDefault("log_format", "json")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	if err := v.BindEnv(
@@ -126,6 +157,22 @@ func LoadConfig() (*Config, error) {
 	}
 	if err := v.BindEnv("tools_dir", "TOOLS_DIR", "PR_RELEASE_TOOLS_DIR", "COMPOZY_RELEASE_TOOLS_DIR"); err != nil {
 		return nil, fmt.Errorf("failed to bind tools_dir env: %w", err)
+	}
+	if err := v.BindEnv(
+		"log_level",
+		"LOG_LEVEL",
+		"PR_RELEASE_LOG_LEVEL",
+		"COMPOZY_RELEASE_LOG_LEVEL",
+	); err != nil {
+		return nil, fmt.Errorf("failed to bind log_level env: %w", err)
+	}
+	if err := v.BindEnv(
+		"log_format",
+		"LOG_FORMAT",
+		"PR_RELEASE_LOG_FORMAT",
+		"COMPOZY_RELEASE_LOG_FORMAT",
+	); err != nil {
+		return nil, fmt.Errorf("failed to bind log_format env: %w", err)
 	}
 	if err := v.BindEnv("npm_token", "NPM_TOKEN", "PR_RELEASE_NPM_TOKEN", "COMPOZY_RELEASE_NPM_TOKEN"); err != nil {
 		return nil, fmt.Errorf("failed to bind npm_token env: %w", err)

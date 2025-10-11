@@ -1,17 +1,20 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestPRReleaseOrchestrator_Execute(t *testing.T) {
@@ -377,10 +380,17 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		t.Setenv("GITHUB_TOKEN", "test-token")
 
-		// Capture output
-		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
+		// Configure logger to capture CI log output
+		buf := &bytes.Buffer{}
+		encoderCfg := zap.NewProductionEncoderConfig()
+		encoderCfg.TimeKey = ""
+		encoder := zapcore.NewJSONEncoder(encoderCfg)
+		core := zapcore.NewCore(encoder, zapcore.AddSync(buf), zapcore.InfoLevel)
+		testLogger := zap.New(core)
+		ctx = logger.IntoContext(ctx, testLogger)
+		t.Cleanup(func() {
+			_ = logger.Sync(testLogger)
+		})
 
 		// Setup expectations - no changes for simplicity (use mock.Anything for context)
 		gitRepo.On("LatestTag", mock.Anything).Return("v1.0.0", nil).Once()
@@ -393,17 +403,11 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		err := orch.Execute(ctx, cfg)
 		require.NoError(t, err)
-
-		// Restore stdout and read output
-		w.Close()
-		os.Stdout = oldStdout
-		buf := make([]byte, 1024)
-		n, _ := r.Read(buf)
-		output := string(buf[:n])
+		output := buf.String()
 
 		// Verify CI output format
-		assert.Contains(t, output, "has_changes=false")
-		assert.Contains(t, output, "latest_tag=v1.0.0")
+		assert.Contains(t, output, "\"has_changes\":false")
+		assert.Contains(t, output, "\"latest_tag\":\"v1.0.0\"")
 
 		gitRepo.AssertExpectations(t)
 	})

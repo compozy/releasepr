@@ -1,14 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/compozy/releasepr/internal/config"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/orchestrator"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/service"
 	"github.com/spf13/afero"
+	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 // container holds all the dependencies for the application.
@@ -65,11 +69,25 @@ func InitCommands() error {
 	if err != nil {
 		return err
 	}
+	ctx := rootCmd.Context()
+	if ctx == nil {
+		return fmt.Errorf("root command context not initialized")
+	}
+	ctx = config.IntoContext(ctx, c.cfg)
+	appLogger, err := logger.New(c.cfg.LoggerConfig())
+	if err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
+	ctx = logger.IntoContext(ctx, appLogger)
+	rootCmd.SetContext(ctx)
+	rootCmd.PersistentPostRunE = func(cmd *cobra.Command, _ []string) error {
+		return logger.Sync(logger.FromContext(cmd.Context()))
+	}
 
 	// Individual commands have been replaced by orchestrator commands
 
 	// Add orchestrator-based commands
-	if err := addOrchestratorCommands(c); err != nil {
+	if err := addOrchestratorCommands(ctx, c); err != nil {
 		return err
 	}
 
@@ -79,7 +97,8 @@ func InitCommands() error {
 }
 
 // addOrchestratorCommands adds the new consolidated commands
-func addOrchestratorCommands(c *container) error {
+func addOrchestratorCommands(ctx context.Context, c *container) error {
+	log := logger.FromContext(ctx).Named("cmd.container")
 	// Initialize extended repositories for orchestrators
 	gitExtRepo, err := repository.NewGitExtendedRepository()
 	if err != nil {
@@ -98,23 +117,28 @@ func addOrchestratorCommands(c *container) error {
 	}
 	owner := c.cfg.GithubOwner
 	repo := c.cfg.GithubRepo
-	fmt.Printf("GitHub configuration: owner=%s, repo=%s, token_source=%s, token_present=%t, token_length=%d\n",
-		owner, repo, tokenSource, token != "", len(token))
+	log.Info("GitHub configuration",
+		zap.String("owner", owner),
+		zap.String("repo", repo),
+		zap.String("token_source", tokenSource),
+		zap.Bool("token_present", token != ""),
+		zap.Int("token_length", len(token)),
+	)
 	if owner == "" || repo == "" {
 		return fmt.Errorf("github owner/repo not configured; set GITHUB_REPOSITORY or config values")
 	}
 	var githubExtRepo repository.GithubExtendedRepository
 	if token == "" {
-		fmt.Fprintln(os.Stderr, "GitHub token not provided; GitHub operations will be skipped")
+		log.Warn("GitHub token not provided; GitHub operations will be skipped")
 		githubExtRepo = repository.NewGithubNoopExtendedRepository(owner, repo)
 	} else {
-		fmt.Printf("Initializing GitHub extended repository with token (length=%d)\n", len(token))
+		log.Info("Initializing GitHub extended repository", zap.Int("token_length", len(token)))
 		var err error
 		githubExtRepo, err = repository.NewGithubExtendedRepository(token, owner, repo)
 		if err != nil {
 			return fmt.Errorf("failed to initialize GitHub extended repository: %w", err)
 		}
-		fmt.Printf("Successfully initialized GitHub extended repository for %s/%s\n", owner, repo)
+		log.Info("Initialized GitHub extended repository", zap.String("owner", owner), zap.String("repo", repo))
 	}
 
 	// Create PR Release orchestrator

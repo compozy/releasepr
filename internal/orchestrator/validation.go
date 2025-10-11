@@ -1,10 +1,14 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/compozy/releasepr/internal/logger"
+	"go.uber.org/zap"
 )
 
 var (
@@ -50,11 +54,16 @@ func ValidateBranchName(branch string) error {
 }
 
 // ValidateEnvironmentVariables checks for required environment variables.
-func ValidateEnvironmentVariables(requiredVars []string) error {
+func ValidateEnvironmentVariables(ctx context.Context, requiredVars []string) error {
+	log := logger.FromContext(ctx).Named("orchestrator.validation")
 	var missing []string
 	for _, v := range requiredVars {
 		value := os.Getenv(v)
-		fmt.Printf("Checking environment variable %s: present=%t, length=%d\n", v, value != "", len(value))
+		log.Info("Checking environment variable",
+			zap.String("variable", v),
+			zap.Bool("present", value != ""),
+			zap.Int("length", len(value)),
+		)
 		if value == "" {
 			missing = append(missing, v)
 		}

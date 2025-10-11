@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
+	"go.uber.org/zap"
 )
 
 // CompensatingActions provides idempotent rollback operations for release workflow steps
@@ -27,15 +29,20 @@ func NewCompensatingActions(
 	}
 }
 
+func (ca *CompensatingActions) logger(ctx context.Context) *zap.Logger {
+	return logger.FromContext(ctx).Named("orchestrator.compensating_actions")
+}
+
 // DeleteBranch idempotently deletes a branch locally and optionally from remote
 func (ca *CompensatingActions) DeleteBranch(ctx context.Context, rollbackData map[string]any) error {
+	log := ca.logger(ctx)
 	branchName, ok := rollbackData["branch_name"].(string)
 	if !ok {
 		return fmt.Errorf("branch_name not found in rollback data")
 	}
 	// Check if branch was created in this session
 	if !ca.wasCreatedInSession(rollbackData) {
-		fmt.Printf("Branch %s existed before this session, skipping deletion\n", branchName)
+		log.Info("Branch existed before session, skipping deletion", zap.String("branch", branchName))
 		return nil
 	}
 	// Switch away from branch if currently on it
@@ -101,6 +108,7 @@ func (ca *CompensatingActions) deleteRemoteBranchIfPushed(
 	branchName string,
 	rollbackData map[string]any,
 ) error {
+	log := ca.logger(ctx)
 	pushed, ok := rollbackData["pushed"].(bool)
 	if !ok {
 		pushed = false // Default to false if not set
@@ -126,17 +134,16 @@ func (ca *CompensatingActions) deleteRemoteBranchIfPushed(
 					err,
 				)
 			}
-			fmt.Printf(
-				"Attempt %d/%d: failed to delete remote branch %s: %v, retrying...\n",
-				attempt,
-				maxRetries,
-				branchName,
-				err,
+			log.Warn("Failed to delete remote branch, retrying",
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", maxRetries),
+				zap.String("branch", branchName),
+				zap.Error(err),
 			)
 			continue
 		}
 		// Success
-		fmt.Printf("Successfully deleted remote branch %s\n", branchName)
+		log.Info("Deleted remote branch", zap.String("branch", branchName))
 		return nil
 	}
 	return nil
@@ -144,6 +151,7 @@ func (ca *CompensatingActions) deleteRemoteBranchIfPushed(
 
 // RestoreFiles idempotently restores modified files to their original state
 func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData map[string]any) error {
+	log := ca.logger(ctx)
 	modifiedFiles, ok := rollbackData["modified_files"].([]string)
 	if !ok {
 		// Try interface{} slice (JSON unmarshaling)
@@ -163,7 +171,7 @@ func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData ma
 		if ca.fileHasChanges(ctx, file) {
 			if err := ca.gitRepo.RestoreFile(ctx, file); err != nil {
 				if !os.IsNotExist(err) {
-					fmt.Printf("Warning: failed to restore file %s: %v\n", file, err)
+					log.Warn("Failed to restore file", zap.String("file", file), zap.Error(err))
 				}
 			}
 		}
@@ -173,6 +181,7 @@ func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData ma
 
 // ResetCommit idempotently undoes a commit
 func (ca *CompensatingActions) ResetCommit(ctx context.Context, rollbackData map[string]any) error {
+	log := ca.logger(ctx)
 	commitSHA, ok := rollbackData["commit_sha"].(string)
 	if !ok || commitSHA == "" || commitSHA == "HEAD" {
 		// No specific commit to reset
@@ -185,7 +194,7 @@ func (ca *CompensatingActions) ResetCommit(ctx context.Context, rollbackData map
 	}
 	// If we're not at the commit anymore, it's already been reset
 	if !strings.HasPrefix(currentHead, commitSHA) {
-		fmt.Printf("Commit %s already reset, skipping\n", commitSHA)
+		log.Info("Commit already reset", zap.String("commit", commitSHA))
 		return nil
 	}
 	// Reset to the commit before this one
@@ -193,7 +202,7 @@ func (ca *CompensatingActions) ResetCommit(ctx context.Context, rollbackData map
 		// If the commit doesn't exist or we're at the first commit, ignore
 		if strings.Contains(err.Error(), "unknown revision") ||
 			strings.Contains(err.Error(), "does not have a parent") {
-			fmt.Printf("Cannot reset commit %s: %v\n", commitSHA, err)
+			log.Warn("Cannot reset commit", zap.String("commit", commitSHA), zap.Error(err))
 			return nil
 		}
 		return fmt.Errorf("failed to reset commit %s: %w", commitSHA, err)
@@ -203,6 +212,7 @@ func (ca *CompensatingActions) ResetCommit(ctx context.Context, rollbackData map
 
 // ClosePullRequest idempotently closes a pull request with a rollback comment
 func (ca *CompensatingActions) ClosePullRequest(ctx context.Context, rollbackData map[string]any) error {
+	log := ca.logger(ctx)
 	prNumber := ca.extractPRNumber(rollbackData)
 	if prNumber == 0 {
 		// No PR to close
@@ -218,13 +228,13 @@ func (ca *CompensatingActions) ClosePullRequest(ctx context.Context, rollbackDat
 		return fmt.Errorf("failed to check PR status: %w", err)
 	}
 	if prStatus == "closed" {
-		fmt.Printf("PR #%d is already closed\n", prNumber)
+		log.Info("Pull request already closed", zap.Int("pr_number", prNumber))
 		return nil
 	}
 	// Add a comment explaining the rollback
 	comment := "🔄 This pull request was automatically closed due to a rollback of the release workflow."
 	if err := ca.githubRepo.AddComment(ctx, prNumber, comment); err != nil {
-		fmt.Printf("Warning: failed to add rollback comment to PR #%d: %v\n", prNumber, err)
+		log.Warn("Failed to add rollback comment", zap.Int("pr_number", prNumber), zap.Error(err))
 	}
 	// Close the PR
 	if err := ca.githubRepo.ClosePR(ctx, prNumber); err != nil {

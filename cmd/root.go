@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"errors"
+
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -11,5 +14,13 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
-	return rootCmd.Execute()
+	execErr := rootCmd.Execute()
+	syncErr := logger.Sync(logger.FromContext(rootCmd.Context()))
+	if execErr != nil {
+		if syncErr != nil {
+			return errors.Join(execErr, syncErr)
+		}
+		return execErr
+	}
+	return syncErr
 }

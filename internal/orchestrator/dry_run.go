@@ -14,9 +14,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/service"
 	"github.com/spf13/afero"
+	"go.uber.org/zap"
 )
 
 const (
@@ -62,6 +64,10 @@ func NewDryRunOrchestrator(
 	}
 }
 
+func (o *DryRunOrchestrator) logger(ctx context.Context) *zap.Logger {
+	return logger.FromContext(ctx).Named("orchestrator.dry_run")
+}
+
 // Execute runs the dry-run validation
 func (o *DryRunOrchestrator) Execute(ctx context.Context, cfg DryRunConfig) error {
 	ctx, cancel := context.WithTimeout(ctx, DefaultWorkflowTimeout)
@@ -82,15 +88,15 @@ func (o *DryRunOrchestrator) Execute(ctx context.Context, cfg DryRunConfig) erro
 			return err
 		}
 	} else {
-		o.printStatus(cfg.CIOutput, "Dry-run completed. Review required.")
+		o.logStatus(ctx, cfg.CIOutput, "Dry-run completed. Review required.")
 	}
-	o.printStatus(cfg.CIOutput, "## ✅ Dry-Run Completed Successfully")
+	o.logStatus(ctx, cfg.CIOutput, "## ✅ Dry-Run Completed Successfully")
 	return nil
 }
 
 // stepValidateChangelog validates git-cliff changelog generation
 func (o *DryRunOrchestrator) stepValidateChangelog(ctx context.Context, cfg DryRunConfig) error {
-	o.printStatus(cfg.CIOutput, "### 📝 Validating Changelog Generation")
+	o.logStatus(ctx, cfg.CIOutput, "### 📝 Validating Changelog Generation")
 	if err := o.validateCliff(ctx); err != nil {
 		return fmt.Errorf("git-cliff validation failed: %w", err)
 	}
@@ -99,24 +105,24 @@ func (o *DryRunOrchestrator) stepValidateChangelog(ctx context.Context, cfg DryR
 
 // stepRunGoReleaser executes GoReleaser dry-run
 func (o *DryRunOrchestrator) stepRunGoReleaser(ctx context.Context, cfg DryRunConfig) error {
-	o.printStatus(cfg.CIOutput, "### 🏗️ Running GoReleaser Dry-Run")
-	fmt.Println("🔍 Running GoReleaser dry-run")
+	o.logStatus(ctx, cfg.CIOutput, "### 🏗️ Running GoReleaser Dry-Run")
+	o.logger(ctx).Info("Running GoReleaser dry-run")
 	if err := o.runGoReleaserDry(ctx); err != nil {
 		return fmt.Errorf("GoReleaser dry-run failed: %w", err)
 	}
-	fmt.Println("✅ GoReleaser dry-run completed")
+	o.logger(ctx).Info("Completed GoReleaser dry-run")
 	return nil
 }
 
 // stepExtractVersion extracts version from branch name
 func (o *DryRunOrchestrator) stepExtractVersion(ctx context.Context, cfg DryRunConfig) (string, error) {
-	o.printStatus(cfg.CIOutput, "### 📦 Validating NPM packages")
-	fmt.Println("🔍 Extracting version from branch")
+	o.logStatus(ctx, cfg.CIOutput, "### 📦 Validating NPM packages")
+	o.logger(ctx).Info("Extracting version from branch")
 	version, err := o.extractVersionFromBranch(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract version: %w", err)
 	}
-	fmt.Printf("ℹ️ Detected version: %s\n", version)
+	o.logger(ctx).Info("Detected version", zap.String("version", version))
 	return version, nil
 }
 
@@ -125,17 +131,18 @@ func (o *DryRunOrchestrator) stepExtractVersion(ctx context.Context, cfg DryRunC
 
 // stepCommentPR creates PR comment with dry-run results
 func (o *DryRunOrchestrator) stepCommentPR(ctx context.Context, _ DryRunConfig) error {
-	fmt.Println("🔍 Creating PR comment")
+	o.logger(ctx).Info("Creating PR comment")
 	if err := o.commentOnPR(ctx); err != nil {
 		return fmt.Errorf("PR comment failed: %w", err)
 	}
-	fmt.Println("✅ PR comment created")
+	o.logger(ctx).Info("PR comment created")
 	return nil
 }
 
 // validateCliff runs git-cliff --unreleased --verbose
 func (o *DryRunOrchestrator) validateCliff(ctx context.Context) error {
-	fmt.Println("🔍 Running git-cliff --unreleased --verbose")
+	log := o.logger(ctx)
+	log.Info("Running git-cliff --unreleased --verbose")
 	cmd := exec.CommandContext(ctx, "git-cliff", "--unreleased", "--verbose")
 	// Find the repository root by walking up directories
 	wd, err := os.Getwd()
@@ -147,13 +154,13 @@ func (o *DryRunOrchestrator) validateCliff(ctx context.Context) error {
 		// Only run when inside an actual git repository
 		if _, statErr := os.Stat(filepath.Join(repoRoot, ".git")); statErr == nil {
 			cmd.Dir = repoRoot
-			fmt.Printf("🔍 Running git-cliff from repository root: %s\n", repoRoot)
+			log.Info("Running git-cliff from repository root", zap.String("repo_root", repoRoot))
 		} else {
-			fmt.Println("ℹ️ Skipping git-cliff validation (no .git directory detected)")
+			log.Info("Skipping git-cliff validation", zap.String("reason", "no .git directory"))
 			return nil
 		}
 	} else {
-		fmt.Println("ℹ️ Skipping git-cliff validation (repository root not found)")
+		log.Info("Skipping git-cliff validation", zap.String("reason", "repository root not found"))
 		return nil
 	}
 	cmd.Stdout = os.Stdout
@@ -161,7 +168,7 @@ func (o *DryRunOrchestrator) validateCliff(ctx context.Context) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git-cliff failed: %w", err)
 	}
-	fmt.Println("✅ git-cliff validation completed")
+	log.Info("git-cliff validation completed")
 	return nil
 }
 
@@ -198,7 +205,7 @@ func (o *DryRunOrchestrator) extractVersionFromBranch(ctx context.Context) (stri
 func (o *DryRunOrchestrator) commentOnPR(ctx context.Context) error {
 	prNumber := o.getPRNumber(ctx)
 	if prNumber == 0 {
-		fmt.Println("ℹ️ Skipping PR comment (no PR number found)")
+		o.logger(ctx).Info("Skipping PR comment", zap.String("reason", "no PR number found"))
 		return nil
 	}
 
@@ -305,11 +312,13 @@ func (o *DryRunOrchestrator) getPRNumber(_ context.Context) int {
 	return 0
 }
 
-// printStatus prints status if not CI
-func (o *DryRunOrchestrator) printStatus(ciOutput bool, message string) {
-	if !ciOutput {
-		fmt.Println(message)
+// logStatus records orchestrator status messages respecting CI output flags
+func (o *DryRunOrchestrator) logStatus(ctx context.Context, ciOutput bool, message string) {
+	if ciOutput {
+		o.logger(ctx).Info("ci_status", zap.String("message", message))
+		return
 	}
+	o.logger(ctx).Info(message)
 }
 
 // findRepoRoot walks up directories to find the git repository root
