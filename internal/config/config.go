@@ -24,9 +24,33 @@ type Config struct {
 
 var configFileCandidates = []string{".pr-release", ".compozy-release"}
 
-// DefaultConfig returns a Config with default values.
 func DefaultConfig() *Config {
-	return &Config{ToolsDir: "tools", LogLevel: "info", LogFormat: "json"}
+	logFormat := "json"
+	if isCI() {
+		logFormat = "console"
+	}
+	return &Config{ToolsDir: "tools", LogLevel: "info", LogFormat: logFormat}
+}
+
+func isCI() bool {
+	ciEnvVars := []string{
+		"CI",
+		"CONTINUOUS_INTEGRATION",
+		"GITHUB_ACTIONS",
+		"GITLAB_CI",
+		"CIRCLECI",
+		"TRAVIS",
+		"JENKINS_URL",
+		"BUILDKITE",
+		"DRONE",
+		"TEAMCITY_VERSION",
+	}
+	for _, envVar := range ciEnvVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate validates the configuration.
@@ -126,8 +150,6 @@ func LoadConfig() (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
-	v.SetDefault("log_level", "info")
-	v.SetDefault("log_format", "json")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	if err := v.BindEnv(
@@ -179,6 +201,8 @@ func LoadConfig() (*Config, error) {
 	}
 	defaults := DefaultConfig()
 	v.SetDefault("tools_dir", defaults.ToolsDir)
+	v.SetDefault("log_level", defaults.LogLevel)
+	v.SetDefault("log_format", defaults.LogFormat)
 	for _, name := range configFileCandidates {
 		v.SetConfigName(name)
 		if err := v.ReadInConfig(); err != nil {

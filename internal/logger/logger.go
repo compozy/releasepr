@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 
@@ -18,6 +19,11 @@ type Config struct {
 
 type contextKey struct{}
 
+const (
+	formatJSON    = "json"
+	formatConsole = "console"
+)
+
 func New(cfg Config) (*zap.Logger, error) {
 	zapCfg, err := buildZapConfig(cfg)
 	if err != nil {
@@ -30,9 +36,9 @@ func buildZapConfig(cfg Config) (zap.Config, error) {
 	format := strings.ToLower(strings.TrimSpace(cfg.Format))
 	var zapCfg zap.Config
 	switch format {
-	case "json":
+	case formatJSON:
 		zapCfg = zap.NewProductionConfig()
-	case "console":
+	case formatConsole:
 		zapCfg = zap.NewDevelopmentConfig()
 	default:
 		return zap.Config{}, fmt.Errorf("logger: unsupported format %s", cfg.Format)
@@ -43,6 +49,14 @@ func buildZapConfig(cfg Config) (zap.Config, error) {
 	}
 	zapCfg.Level = zap.NewAtomicLevelAt(level)
 	zapCfg.Encoding = format
+	encoder := buildEncoderConfig(format)
+	zapCfg.EncoderConfig = encoder
+	zapCfg.OutputPaths = []string{"stdout"}
+	zapCfg.ErrorOutputPaths = []string{"stderr"}
+	return zapCfg, nil
+}
+
+func buildEncoderConfig(format string) zapcore.EncoderConfig {
 	encoder := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "level",
@@ -56,13 +70,36 @@ func buildZapConfig(cfg Config) (zap.Config, error) {
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
-	if format == "console" {
-		encoder.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	if format == formatConsole {
+		if isCI() {
+			encoder.EncodeLevel = zapcore.CapitalLevelEncoder
+			encoder.EncodeTime = zapcore.RFC3339TimeEncoder
+		} else {
+			encoder.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		}
 	}
-	zapCfg.EncoderConfig = encoder
-	zapCfg.OutputPaths = []string{"stdout"}
-	zapCfg.ErrorOutputPaths = []string{"stderr"}
-	return zapCfg, nil
+	return encoder
+}
+
+func isCI() bool {
+	ciEnvVars := []string{
+		"CI",
+		"CONTINUOUS_INTEGRATION",
+		"GITHUB_ACTIONS",
+		"GITLAB_CI",
+		"CIRCLECI",
+		"TRAVIS",
+		"JENKINS_URL",
+		"BUILDKITE",
+		"DRONE",
+		"TEAMCITY_VERSION",
+	}
+	for _, envVar := range ciEnvVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func parseLevel(level string) (zapcore.Level, error) {
