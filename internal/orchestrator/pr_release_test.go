@@ -636,8 +636,8 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 			Return([]string{"main", branchName}, nil).
 			Maybe()
 			// Check if branch exists locally
-		gitRepo.On("ListRemoteBranches", mock.Anything).
-			Return([]string{"origin/main", "origin/" + branchName}, nil).
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).
+			Return(true, nil).
 			Maybe()
 			// Check if branch exists remotely
 		gitRepo.On("CheckoutBranch", mock.Anything, "main").
@@ -725,8 +725,8 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 			Return([]string{"main", branchName}, nil).
 			Maybe()
 			// Check if branch exists
-		gitRepo.On("ListRemoteBranches", mock.Anything).
-			Return([]string{"origin/main", "origin/" + branchName}, nil).
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).
+			Return(true, nil).
 			Maybe()
 			// Check if branch exists remotely
 		gitRepo.On("GetCurrentBranch", mock.Anything).
@@ -803,8 +803,8 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		// Add mocks for rollback operations
 		gitRepo.On("GetFileStatus", mock.Anything, mock.Anything).Return("modified", nil).Maybe()
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main", branchName}, nil).Maybe()
-		gitRepo.On("ListRemoteBranches", mock.Anything).
-			Return([]string{"origin/main", "origin/" + branchName}, nil).
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).
+			Return(true, nil).
 			Maybe()
 		gitRepo.On("GetCurrentBranch", mock.Anything).Return(branchName, nil).Times(2)
 		gitRepo.On("RestoreFile", mock.Anything, mock.Anything).Return(nil).Maybe()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/compozy/releasepr/internal/domain"
 	"github.com/compozy/releasepr/internal/logger"
@@ -372,7 +373,7 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 	// Add all workflow steps
 	o.addCheckChangesStep(saga, cfg, compensator, wctx)
 	o.addCalculateVersionStep(saga, cfg, compensator, wctx)
-	o.addCreateBranchStep(saga, compensator, wctx, originalBranch)
+	o.addCreateBranchStep(saga, cfg, compensator, wctx, originalBranch)
 	o.addUpdatePackagesStep(saga, compensator, wctx)
 	o.addGenerateChangelogStep(saga, compensator, wctx)
 	o.addCommitChangesStep(saga, compensator, wctx)
@@ -461,6 +462,7 @@ func (o *PRReleaseOrchestrator) addCalculateVersionStep(
 
 func (o *PRReleaseOrchestrator) addCreateBranchStep(
 	saga *SagaExecutor,
+	cfg PRReleaseConfig,
 	compensator *CompensatingActions,
 	wctx *workflowContext,
 	originalBranch string,
@@ -472,49 +474,39 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 			if wctx.version == "" {
 				return map[string]any{"skip": true}, nil
 			}
-			wctx.branchName = fmt.Sprintf("release/%s", wctx.version)
-			o.logger(ctx).Info("Determined release branch", zap.String("branch", wctx.branchName))
-			if err := ValidateBranchName(wctx.branchName); err != nil {
-				return nil, fmt.Errorf("invalid branch name: %w", err)
-			}
-			saga.SetBranchName(wctx.branchName)
-			branches, err := o.gitRepo.ListLocalBranches(ctx)
+			branchName, err := o.prepareBranchName(ctx, saga, wctx)
 			if err != nil {
-				return nil, fmt.Errorf("failed to list local branches: %w", err)
+				return nil, err
 			}
-			branchExists := slices.Contains(branches, wctx.branchName)
-			remoteBranches, err := o.gitRepo.ListRemoteBranches(ctx)
+			branchExists, remoteExists, err := o.checkBranchExistence(ctx, branchName)
 			if err != nil {
-				return nil, fmt.Errorf("failed to list remote branches: %w", err)
+				return nil, err
 			}
-			remoteExists := slices.Contains(remoteBranches, fmt.Sprintf("origin/%s", wctx.branchName))
-			switch {
-			case branchExists && remoteExists:
-				o.logger(ctx).Info(
-					"Reusing existing branch",
-					zap.String("branch", wctx.branchName),
-					zap.Bool("local", true),
-					zap.Bool("remote", true),
+			if cfg.ForceRelease {
+				branchExists, remoteExists, err = o.forceDeleteBranch(
+					ctx,
+					branchName,
+					branchExists,
+					remoteExists,
+					originalBranch,
 				)
-			case branchExists:
-				o.logger(ctx).Info("Checking out existing local branch", zap.String("branch", wctx.branchName))
-			case remoteExists:
-				o.logger(ctx).Info("Checking out remote branch", zap.String("branch", wctx.branchName))
-			default:
-				o.logger(ctx).Info("Creating new branch", zap.String("branch", wctx.branchName))
-			}
-			wctx.createdInSession = !branchExists
-			if wctx.createdInSession {
-				if err := o.createReleaseBranch(ctx, wctx.branchName); err != nil {
-					return nil, fmt.Errorf("failed to create release branch %s: %w", wctx.branchName, err)
+				if err != nil {
+					return nil, err
 				}
 			}
-			if err := o.gitRepo.CheckoutBranch(ctx, wctx.branchName); err != nil {
-				return nil, fmt.Errorf("failed to checkout release branch %s: %w", wctx.branchName, err)
+			o.logBranchStatus(ctx, branchName, branchExists, remoteExists)
+			wctx.createdInSession = !branchExists
+			if wctx.createdInSession {
+				if err := o.createReleaseBranch(ctx, branchName); err != nil {
+					return nil, fmt.Errorf("failed to create release branch %s: %w", branchName, err)
+				}
 			}
-			o.logger(ctx).Info("Checked out release branch", zap.String("branch", wctx.branchName))
+			if err := o.gitRepo.CheckoutBranch(ctx, branchName); err != nil {
+				return nil, fmt.Errorf("failed to checkout release branch %s: %w", branchName, err)
+			}
+			o.logger(ctx).Info("Checked out release branch", zap.String("branch", branchName))
 			return map[string]any{
-				"branch_name":        wctx.branchName,
+				"branch_name":        branchName,
 				"original_branch":    originalBranch,
 				"created_in_session": wctx.createdInSession,
 				"remote_exists":      remoteExists,
@@ -522,6 +514,98 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 		},
 		Compensate: compensator.DeleteBranch,
 	})
+}
+
+func (o *PRReleaseOrchestrator) prepareBranchName(
+	ctx context.Context,
+	saga *SagaExecutor,
+	wctx *workflowContext,
+) (string, error) {
+	wctx.branchName = fmt.Sprintf("release/%s", wctx.version)
+	o.logger(ctx).Info("Determined release branch", zap.String("branch", wctx.branchName))
+	if err := ValidateBranchName(wctx.branchName); err != nil {
+		return "", fmt.Errorf("invalid branch name: %w", err)
+	}
+	saga.SetBranchName(wctx.branchName)
+	return wctx.branchName, nil
+}
+
+func (o *PRReleaseOrchestrator) checkBranchExistence(ctx context.Context, branchName string) (bool, bool, error) {
+	branches, err := o.gitRepo.ListLocalBranches(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to list local branches: %w", err)
+	}
+	branchExists := slices.Contains(branches, branchName)
+	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	remoteExists, err := o.gitRepo.RemoteBranchExists(checkCtx, branchName)
+	if err != nil {
+		o.logger(ctx).Warn("Failed to check remote branch, assuming it doesn't exist",
+			zap.String("branch", branchName),
+			zap.Error(err))
+		remoteExists = false
+	}
+	return branchExists, remoteExists, nil
+}
+
+func (o *PRReleaseOrchestrator) forceDeleteBranch(
+	ctx context.Context,
+	branchName string,
+	branchExists, remoteExists bool,
+	originalBranch string,
+) (bool, bool, error) {
+	if !branchExists && !remoteExists {
+		return branchExists, remoteExists, nil
+	}
+	o.logger(ctx).Info("Force flag set, deleting existing branch",
+		zap.String("branch", branchName),
+		zap.Bool("local_exists", branchExists),
+		zap.Bool("remote_exists", remoteExists))
+	if branchExists {
+		if err := o.gitRepo.CheckoutBranch(ctx, originalBranch); err != nil {
+			return branchExists, remoteExists, fmt.Errorf(
+				"failed to checkout original branch %s: %w",
+				originalBranch,
+				err,
+			)
+		}
+		if err := o.gitRepo.DeleteBranch(ctx, branchName); err != nil {
+			return branchExists, remoteExists, fmt.Errorf("failed to delete local branch %s: %w", branchName, err)
+		}
+		o.logger(ctx).Info("Deleted local branch", zap.String("branch", branchName))
+	}
+	if remoteExists {
+		if err := o.gitRepo.DeleteRemoteBranch(ctx, branchName); err != nil {
+			o.logger(ctx).Warn("Failed to delete remote branch, will force push",
+				zap.String("branch", branchName),
+				zap.Error(err))
+		} else {
+			o.logger(ctx).Info("Deleted remote branch", zap.String("branch", branchName))
+		}
+	}
+	return false, false, nil
+}
+
+func (o *PRReleaseOrchestrator) logBranchStatus(
+	ctx context.Context,
+	branchName string,
+	branchExists, remoteExists bool,
+) {
+	switch {
+	case branchExists && remoteExists:
+		o.logger(ctx).Info(
+			"Reusing existing branch",
+			zap.String("branch", branchName),
+			zap.Bool("local", true),
+			zap.Bool("remote", true),
+		)
+	case branchExists:
+		o.logger(ctx).Info("Checking out existing local branch", zap.String("branch", branchName))
+	case remoteExists:
+		o.logger(ctx).Info("Checking out remote branch", zap.String("branch", branchName))
+	default:
+		o.logger(ctx).Info("Creating new branch", zap.String("branch", branchName))
+	}
 }
 
 func (o *PRReleaseOrchestrator) addUpdatePackagesStep(

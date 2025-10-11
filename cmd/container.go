@@ -97,7 +97,7 @@ func InitCommands() error {
 func addOrchestratorCommands(ctx context.Context, c *container) error {
 	log := logger.FromContext(ctx).Named("cmd.container")
 	// Initialize extended repositories for orchestrators
-	gitExtRepo, err := repository.NewGitExtendedRepository()
+	gitExtRepo, err := repository.NewGitExtendedRepositoryWithTimeout(c.cfg.GitPushTimeoutMinutes)
 	if err != nil {
 		return fmt.Errorf("failed to initialize git extended repository: %w", err)
 	}

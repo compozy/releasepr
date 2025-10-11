@@ -261,16 +261,11 @@ func (ca *CompensatingActions) branchExistsLocally(ctx context.Context, branchNa
 }
 
 func (ca *CompensatingActions) branchExistsRemotely(ctx context.Context, branchName string) bool {
-	branches, err := ca.gitRepo.ListRemoteBranches(ctx)
+	exists, err := ca.gitRepo.RemoteBranchExists(ctx, branchName)
 	if err != nil {
 		return false
 	}
-	for _, branch := range branches {
-		if strings.HasSuffix(branch, "/"+branchName) {
-			return true
-		}
-	}
-	return false
+	return exists
 }
 
 func (ca *CompensatingActions) fileHasChanges(ctx context.Context, file string) bool {

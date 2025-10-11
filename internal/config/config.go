@@ -13,13 +13,14 @@ import (
 )
 
 type Config struct {
-	GithubToken string `mapstructure:"github_token"`
-	GithubOwner string `mapstructure:"github_owner"`
-	GithubRepo  string `mapstructure:"github_repo"`
-	ToolsDir    string `mapstructure:"tools_dir"`
-	NpmToken    string `mapstructure:"npm_token"`
-	LogLevel    string `mapstructure:"log_level"`
-	LogFormat   string `mapstructure:"log_format"`
+	GithubToken           string `mapstructure:"github_token"`
+	GithubOwner           string `mapstructure:"github_owner"`
+	GithubRepo            string `mapstructure:"github_repo"`
+	ToolsDir              string `mapstructure:"tools_dir"`
+	NpmToken              string `mapstructure:"npm_token"`
+	LogLevel              string `mapstructure:"log_level"`
+	LogFormat             string `mapstructure:"log_format"`
+	GitPushTimeoutMinutes int    `mapstructure:"git_push_timeout_minutes"`
 }
 
 var configFileCandidates = []string{".pr-release", ".compozy-release"}
@@ -29,7 +30,12 @@ func DefaultConfig() *Config {
 	if isCI() {
 		logFormat = "console"
 	}
-	return &Config{ToolsDir: "tools", LogLevel: "info", LogFormat: logFormat}
+	return &Config{
+		ToolsDir:              "tools",
+		LogLevel:              "info",
+		LogFormat:             logFormat,
+		GitPushTimeoutMinutes: 2,
+	}
 }
 
 func isCI() bool {
@@ -74,6 +80,9 @@ func (c *Config) Validate() error {
 	}
 	if err := validateLogFormat(c.LogFormat); err != nil {
 		return err
+	}
+	if c.GitPushTimeoutMinutes < 1 || c.GitPushTimeoutMinutes > 30 {
+		return fmt.Errorf("git_push_timeout_minutes must be between 1 and 30, got %d", c.GitPushTimeoutMinutes)
 	}
 	return nil
 }
@@ -146,63 +155,52 @@ func ValidateGitHubOwnerRepo(owner, repo string) error {
 	return nil
 }
 
+func bindEnvironmentVariables(v *viper.Viper) error {
+	bindings := map[string][]string{
+		"github_token": {
+			"GITHUB_TOKEN",
+			"PR_RELEASE_GITHUB_TOKEN",
+			"COMPOZY_RELEASE_GITHUB_TOKEN",
+			"RELEASE_TOKEN",
+		},
+		"github_owner": {"GITHUB_OWNER", "PR_RELEASE_GITHUB_OWNER", "COMPOZY_RELEASE_GITHUB_OWNER"},
+		"github_repo":  {"GITHUB_REPO", "PR_RELEASE_GITHUB_REPO", "COMPOZY_RELEASE_GITHUB_REPO"},
+		"tools_dir":    {"TOOLS_DIR", "PR_RELEASE_TOOLS_DIR", "COMPOZY_RELEASE_TOOLS_DIR"},
+		"log_level":    {"LOG_LEVEL", "PR_RELEASE_LOG_LEVEL", "COMPOZY_RELEASE_LOG_LEVEL"},
+		"log_format":   {"LOG_FORMAT", "PR_RELEASE_LOG_FORMAT", "COMPOZY_RELEASE_LOG_FORMAT"},
+		"npm_token":    {"NPM_TOKEN", "PR_RELEASE_NPM_TOKEN", "COMPOZY_RELEASE_NPM_TOKEN"},
+		"git_push_timeout_minutes": {
+			"GIT_PUSH_TIMEOUT_MINUTES",
+			"PR_RELEASE_GIT_PUSH_TIMEOUT_MINUTES",
+			"COMPOZY_RELEASE_GIT_PUSH_TIMEOUT_MINUTES",
+		},
+	}
+	for key, envs := range bindings {
+		if err := v.BindEnv(append([]string{key}, envs...)...); err != nil {
+			return fmt.Errorf("failed to bind %s env: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func setConfigDefaults(v *viper.Viper) {
+	defaults := DefaultConfig()
+	v.SetDefault("tools_dir", defaults.ToolsDir)
+	v.SetDefault("log_level", defaults.LogLevel)
+	v.SetDefault("log_format", defaults.LogFormat)
+	v.SetDefault("git_push_timeout_minutes", defaults.GitPushTimeoutMinutes)
+}
+
 func LoadConfig() (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	if err := v.BindEnv(
-		"github_token",
-		"GITHUB_TOKEN",
-		"PR_RELEASE_GITHUB_TOKEN",
-		"COMPOZY_RELEASE_GITHUB_TOKEN",
-		"RELEASE_TOKEN",
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind github_token env: %w", err)
+	if err := bindEnvironmentVariables(v); err != nil {
+		return nil, err
 	}
-	if err := v.BindEnv(
-		"github_owner",
-		"GITHUB_OWNER",
-		"PR_RELEASE_GITHUB_OWNER",
-		"COMPOZY_RELEASE_GITHUB_OWNER",
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind github_owner env: %w", err)
-	}
-	if err := v.BindEnv(
-		"github_repo",
-		"GITHUB_REPO",
-		"PR_RELEASE_GITHUB_REPO",
-		"COMPOZY_RELEASE_GITHUB_REPO",
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind github_repo env: %w", err)
-	}
-	if err := v.BindEnv("tools_dir", "TOOLS_DIR", "PR_RELEASE_TOOLS_DIR", "COMPOZY_RELEASE_TOOLS_DIR"); err != nil {
-		return nil, fmt.Errorf("failed to bind tools_dir env: %w", err)
-	}
-	if err := v.BindEnv(
-		"log_level",
-		"LOG_LEVEL",
-		"PR_RELEASE_LOG_LEVEL",
-		"COMPOZY_RELEASE_LOG_LEVEL",
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind log_level env: %w", err)
-	}
-	if err := v.BindEnv(
-		"log_format",
-		"LOG_FORMAT",
-		"PR_RELEASE_LOG_FORMAT",
-		"COMPOZY_RELEASE_LOG_FORMAT",
-	); err != nil {
-		return nil, fmt.Errorf("failed to bind log_format env: %w", err)
-	}
-	if err := v.BindEnv("npm_token", "NPM_TOKEN", "PR_RELEASE_NPM_TOKEN", "COMPOZY_RELEASE_NPM_TOKEN"); err != nil {
-		return nil, fmt.Errorf("failed to bind npm_token env: %w", err)
-	}
-	defaults := DefaultConfig()
-	v.SetDefault("tools_dir", defaults.ToolsDir)
-	v.SetDefault("log_level", defaults.LogLevel)
-	v.SetDefault("log_format", defaults.LogFormat)
+	setConfigDefaults(v)
 	for _, name := range configFileCandidates {
 		v.SetConfigName(name)
 		if err := v.ReadInConfig(); err != nil {

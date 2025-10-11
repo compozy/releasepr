@@ -99,6 +99,10 @@ func (m *mockGitExtendedRepository) ListRemoteBranches(ctx context.Context) ([]s
 	}
 	return nil, args.Error(1)
 }
+func (m *mockGitExtendedRepository) RemoteBranchExists(ctx context.Context, branchName string) (bool, error) {
+	args := m.Called(ctx, branchName)
+	return args.Bool(0), args.Error(1)
+}
 func (m *mockGitExtendedRepository) GetFileStatus(ctx context.Context, path string) (string, error) {
 	args := m.Called(ctx, path)
 	return args.String(0), args.Error(1)

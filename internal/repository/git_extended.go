@@ -22,6 +22,7 @@ type GitExtendedRepository interface {
 	DeleteRemoteBranch(ctx context.Context, name string) error
 	ListLocalBranches(ctx context.Context) ([]string, error)
 	ListRemoteBranches(ctx context.Context) ([]string, error)
+	RemoteBranchExists(ctx context.Context, branchName string) (bool, error)
 	// Tag operations
 	TagExists(ctx context.Context, tag string) (bool, error)
 	// File operations
