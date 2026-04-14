@@ -12,7 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var goreleaserArgs = []string{"release", "--snapshot", "--skip=publish", "--clean"}
+var goreleaserArgs = []string{
+	"release",
+	"--snapshot",
+	"--skip=publish",
+	"--clean",
+	"--release-notes=RELEASE_NOTES.md",
+	"--release-header-tmpl=.goreleaser.release-header.md.tmpl",
+	"--release-footer-tmpl=.goreleaser.release-footer.md.tmpl",
+}
 
 func toIface(ss []string) []any {
 	out := make([]any, len(ss))

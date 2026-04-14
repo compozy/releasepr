@@ -26,6 +26,7 @@ type GitExtendedRepository interface {
 	// Tag operations
 	TagExists(ctx context.Context, tag string) (bool, error)
 	// File operations
+	MoveFile(ctx context.Context, from, to string) error
 	RestoreFile(ctx context.Context, path string) error
 	ResetHard(ctx context.Context, ref string) error
 	GetFileStatus(ctx context.Context, path string) (string, error)

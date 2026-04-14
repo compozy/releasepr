@@ -8,6 +8,7 @@ The tool wraps the end-to-end release workflow:
 
 - Calculates the next semantic version based on commits since the last tag
 - Generates release notes via `git-cliff`
+- Merges optional custom release notes from `.release-notes/*.md`
 - Creates or updates release branches and tags
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
@@ -51,6 +52,7 @@ The CLI is built with Cobra and exposes the following commands:
 
 | Command      | Description                                          |
 | ------------ | ---------------------------------------------------- |
+| `add-note`   | Create a custom release note entry                   |
 | `pr-release` | Run the full release orchestration workflow          |
 | `dry-run`    | Execute release steps without pushing or opening PRs |
 | `version`    | Print build metadata                                 |
@@ -86,6 +88,19 @@ tar -xzf pr-release.tgz
 # Run the orchestrator
 GITHUB_TOKEN=... ./pr-release/pr-release pr-release --dry-run --enable-rollback
 ```
+
+### Add a custom release note
+
+```bash
+./pr-release/pr-release add-note \
+  --title "Shared layout package" \
+  --type feature
+```
+
+Use `--body` to provide the markdown inline instead of opening `$EDITOR`.
+
+The generated files live in `.release-notes/` and are archived automatically to
+`.release-notes/archive/vX.Y.Z/` after a release branch is prepared.
 
 > Prefer not to use `jq`? Head to the [Releases](https://github.com/compozy/releasepr/releases) page,
 > pick the desired tag manually, and substitute it for `${VERSION}` in the snippet above.
@@ -141,6 +156,12 @@ The release workflow relies on additional secrets when running in CI:
 ## GitHub Actions
 
 The repository ships with `ci.yml` for validation and `release.yml` for automated release pull requests, dry-run verification, and production releases. These workflows assume the same environment variables described above and do not embed repo-specific defaults.
+
+Production releases are published from `RELEASE_NOTES.md`. The release workflow wires GoReleaser with:
+
+- `--release-notes=RELEASE_NOTES.md`
+- `--release-header-tmpl=.goreleaser.release-header.md.tmpl`
+- `--release-footer-tmpl=.goreleaser.release-footer.md.tmpl`
 
 ---
 

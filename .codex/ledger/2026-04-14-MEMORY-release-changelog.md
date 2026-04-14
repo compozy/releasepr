@@ -1,46 +1,63 @@
 - Goal (incl. success criteria):
-  - Implement cross-repo fix for release/changelog generation and security-focused dependency updates.
-  - Success means `releasepr` generates versioned release artifacts, `cliff.toml` no longer collapses list items, direct/vulnerable deps are updated, and `compozy/compozy` consumes the fixed `releasepr`.
+  - Implement end-to-end release notes support for `releasepr` based on `docs/plans/2026-04-14-release-notes-design.md`.
+  - Success means `pr-release add-note` creates note files, release orchestration aggregates and archives them with rollback support, `RELEASE_NOTES.md` becomes the published release body, and repo workflows publish GitHub releases from that file.
 - Constraints/Assumptions:
   - Do not overwrite unrelated local changes; `internal/orchestrator/pr_release.go` already has user changes.
   - Must use `apply_patch` for manual edits.
   - Must run `make lint` and `make test` before finishing.
-  - Cross-repo edits include `/Users/pedronauck/Dev/compozy/compozy`.
+  - Plan accepted in chat must be persisted under `.codex/plans/`.
+  - End-to-end scope includes CLI, use cases, orchestrator, workflow, GoReleaser invocation and documentation in this repo.
 - Key decisions:
-  - Rollout scope is cross-repo.
-  - Dependency scope is security + direct dependencies, not full ecosystem refresh.
-  - Root cause is in `releasepr`: PR artifacts are rendered from `--unreleased`/full changelog without target tag, while GitHub Release notes come from GoReleaser/GitHub metadata.
+  - `add-note` is a top-level Cobra command, not nested under `pr-release`.
+  - Release notes are stored in `.release-notes/*.md` and archived per version under `.release-notes/archive/vX.Y.Z/`.
+  - GitHub release publication must explicitly use `RELEASE_NOTES.md` via GoReleaser CLI flags instead of relying on implicit changelog behavior.
+  - Archival requires a first-class git move operation and its own rollback-aware saga step.
+  - Release-note frontmatter must be YAML-marshaled instead of hand-rendered so CLI-created titles always round-trip through the collector.
+  - Release-note collection is version-aware: it reads active notes plus `.release-notes/archive/<version>/` so rerunning the same release branch preserves custom notes.
+  - Archive execution must self-revert partial `git mv` progress before returning an error because saga rollback only persists completed steps.
+  - PR body validation should only reject transport-invalid bytes; literal `<script>` and `javascript:` text inside markdown must remain valid content.
 - State:
-  - Completed for `releasepr`; consumer-repo follow-up is blocked only on publishing a new `releasepr` tag.
+  - Completed.
 - Done:
-  - Confirmed `compozy/compozy` GitHub release `v0.1.11` exists while remote `CHANGELOG.md` still shows unreleased content.
-  - Confirmed merged release PR `#94` carried `## Unreleased` content into `CHANGELOG.md`.
-  - Confirmed `releasepr` itself has the same defect in merged PR `#6` and in its current `CHANGELOG.md`.
-  - Confirmed `cliff.toml` template collapses list items due to whitespace trimming.
-  - Collected dependency update targets with `go list -m -u all` and `govulncheck`.
-  - Updated `releasepr` changelog generation to use versioned release mode for PR artifacts and full changelog rendering.
-  - Added deterministic unit tests for git-cliff command argument construction and output validation.
-  - Updated `releasepr` direct/vulnerable dependencies and Go toolchain references to Go `1.25.9`.
-  - Updated both repos' `cliff.toml` templates to preserve line breaks and explicit GitHub links.
-  - Updated both release workflows to accept both `release:` and `ci(release):` prefixes for dry-run/release triggers.
-  - Left `compozy/compozy` `PR_RELEASE_MODULE` unchanged at the published `releasepr` tag because no new `releasepr` version was released in this session.
-  - Ran `make lint` and `make test` successfully in `releasepr`.
-  - Ran `make lint` in `compozy/compozy`; it failed on pre-existing unrelated issues in files outside this change set.
-  - Ran `make test` in `compozy/compozy`; it progressed through a large portion of the suite, then stalled with no CPU/output for several minutes and had to be terminated.
+  - Read the accepted design and mapped it to the current codebase.
+  - Confirmed `RELEASE_NOTES.md` is currently just the generated changelog and is not staged in commits.
+  - Confirmed the current PR body sanitizer would break valid markdown-heavy release notes such as code fences and literal `{{ ... }}`.
+  - Confirmed rollback currently restores modified files only and lacks a git-level move operation for note archival.
+  - Confirmed the production release job currently relies on GoReleaser/GitHub-generated notes, so workflow changes are required for end-to-end support.
+  - Persisted the accepted implementation plan to `.codex/plans/2026-04-14-release-notes-design.md`.
+  - Added `pr-release add-note` and the release-note file creation flow under `.release-notes/`.
+  - Added domain/use case support for note parsing, grouping, rendering and archival rollback data.
+  - Added `gitRepo.MoveFile` and wired archive rollback through the saga compensator.
+  - Updated release artifact generation so `RELEASE_NOTES.md` contains changelog plus optional custom release notes.
+  - Updated PR body rendering to preserve markdown content and only reject invalid null bytes.
+  - Updated saga flow to archive release notes before commit and to carry enough rollback metadata for branch cleanup after push failures.
+  - Updated dry-run and production release wiring to publish GitHub releases from `RELEASE_NOTES.md` with external GoReleaser header/footer templates.
+  - Updated README with the new `.release-notes/` workflow and CLI usage.
+  - Fixed release-note file generation to marshal YAML frontmatter safely, preventing titles like `Fix: auth flow #123` from being skipped by the collector.
+  - Fixed release-note collection to include archived notes for the target version, preserving custom notes on release-branch reruns.
+  - Fixed archive execution to roll back already-moved notes when a later `git mv` fails, avoiding partially archived trees with no rollback metadata.
+  - Fixed PR body validation so literal `<script>` and `javascript:` text in markdown or fenced code blocks no longer blocks releases.
+  - Added regression coverage for YAML-safe frontmatter titles, rerun collection from version archives, archive failure rollback, literal markdown script/protocol text, and null-byte rejection.
+  - Ran `go test ./...` successfully.
+  - Ran `make lint` successfully.
+  - Ran `make test` successfully.
 - Now:
   - Final summary only.
 - Next:
-  - If needed later, cut/publish a new `releasepr` tag and only then bump `PR_RELEASE_MODULE` in `compozy/compozy`.
+  - None.
 - Open questions (UNCONFIRMED if needed):
   - None.
 - Working set (files/ids/commands):
-  - `cliff.toml`
-  - `internal/service/cliff.go`
-  - `internal/service/cliff_impl.go`
+  - `cmd/*.go`
+  - `internal/domain/*.go`
+  - `internal/usecase/*.go`
+  - `internal/repository/git*.go`
   - `internal/orchestrator/pr_release.go`
   - `internal/orchestrator/*_test.go`
   - `.github/workflows/release.yml`
-  - `/Users/pedronauck/Dev/compozy/compozy/.github/workflows/release.yml`
-  - `/Users/pedronauck/Dev/compozy/compozy/cliff.toml`
-  - `go list -m -u all`
-  - `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+  - `.goreleaser.yml`
+  - `.goreleaser.release-*.md.tmpl`
+  - `README.md`
+  - `go test ./...`
+  - `make lint`
+  - `make test`

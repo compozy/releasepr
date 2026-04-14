@@ -55,6 +55,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 			Return(nil).
 			Once()
 		gitRepo.On("AddFiles", mock.Anything, "CHANGELOG.md").Return(nil).Once()
+		gitRepo.On("AddFiles", mock.Anything, "RELEASE_NOTES.md").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package-lock.json").Return(nil).Once()
 		// tools/* updates removed
@@ -162,7 +163,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.0.1", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -310,7 +311,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -359,7 +360,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -447,7 +448,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v0.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -530,7 +531,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		// Fail on commit (use mock.Anything for context)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(errors.New("nothing to commit")).Once()
 
@@ -707,7 +708,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 			// May be called multiple times with retries
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -866,7 +867,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -979,6 +980,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 
 		gitRepo.On("ConfigureUser", ctx, expectedUser, expectedEmail).Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "CHANGELOG.md").Return(nil).Once()
+		gitRepo.On("AddFiles", ctx, "RELEASE_NOTES.md").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package-lock.json").Return(nil).Once()
 		// no tools files added
@@ -1006,7 +1008,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		gitRepo.On("AddFiles", ctx, mock.Anything).Run(func(args mock.Arguments) {
 			pattern := args.Get(1).(string)
 			addedFiles = append(addedFiles, pattern)
-		}).Return(nil).Times(3)
+		}).Return(nil).Times(4)
 		gitRepo.On("Commit", ctx, mock.Anything).Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
@@ -1017,6 +1019,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		// Verify files were added in correct order
 		assert.Equal(t, []string{
 			"CHANGELOG.md",
+			"RELEASE_NOTES.md",
 			"package.json",
 			"package-lock.json",
 			// tools removed

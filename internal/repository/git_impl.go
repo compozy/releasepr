@@ -443,6 +443,19 @@ func (r *gitRepository) DeleteRemoteBranch(ctx context.Context, name string) err
 	return nil
 }
 
+// MoveFile moves a tracked file using native git so rename state is preserved.
+func (r *gitRepository) MoveFile(ctx context.Context, from, to string) error {
+	moveCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(moveCtx, "git", "mv", from, to)
+	cmd.Dir = r.getWorkingDirectory()
+	cmd.Env = append(os.Environ(), r.getGitEnv()...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to move file from %s to %s: %w (output: %s)", from, to, err, string(output))
+	}
+	return nil
+}
+
 // RestoreFile restores a file to its state in HEAD.
 func (r *gitRepository) RestoreFile(ctx context.Context, path string) error {
 	restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)

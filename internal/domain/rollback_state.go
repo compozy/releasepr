@@ -36,6 +36,7 @@ const (
 	OperationTypeCheckoutBranch    OperationType = "checkout_branch"
 	OperationTypeUpdatePackages    OperationType = "update_packages"
 	OperationTypeGenerateChangelog OperationType = "generate_changelog"
+	OperationTypeArchiveNotes      OperationType = "archive_release_notes"
 	OperationTypeCommitChanges     OperationType = "commit_changes"
 	OperationTypePushBranch        OperationType = "push_branch"
 	OperationTypeCreatePR          OperationType = "create_pr"

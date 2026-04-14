@@ -9,6 +9,8 @@ import (
 
 	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
+	"github.com/compozy/releasepr/internal/usecase"
+	"github.com/spf13/afero"
 	"go.uber.org/zap"
 )
 
@@ -16,16 +18,19 @@ import (
 type CompensatingActions struct {
 	gitRepo    repository.GitExtendedRepository
 	githubRepo repository.GithubExtendedRepository
+	fsRepo     repository.FileSystemRepository
 }
 
 // NewCompensatingActions creates a new compensating actions handler
 func NewCompensatingActions(
 	gitRepo repository.GitExtendedRepository,
 	githubRepo repository.GithubExtendedRepository,
+	fsRepo repository.FileSystemRepository,
 ) *CompensatingActions {
 	return &CompensatingActions{
 		gitRepo:    gitRepo,
 		githubRepo: githubRepo,
+		fsRepo:     fsRepo,
 	}
 }
 
@@ -175,6 +180,34 @@ func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData ma
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// RestoreArchivedReleaseNotes moves archived release-note files back to their original paths.
+func (ca *CompensatingActions) RestoreArchivedReleaseNotes(ctx context.Context, rollbackData map[string]any) error {
+	result, err := usecase.ParseArchiveReleaseNotesResult(rollbackData)
+	if err != nil {
+		return fmt.Errorf("failed to parse archived release notes rollback data: %w", err)
+	}
+	for index := len(result.Moves) - 1; index >= 0; index-- {
+		move := result.Moves[index]
+		exists, existsErr := afero.Exists(ca.fsRepo, move.To)
+		if existsErr != nil {
+			return fmt.Errorf("failed to inspect archived release note %s: %w", move.To, existsErr)
+		}
+		if !exists {
+			continue
+		}
+		if err := ca.gitRepo.MoveFile(ctx, move.To, move.From); err != nil {
+			return fmt.Errorf("failed to restore archived release note %s: %w", move.To, err)
+		}
+	}
+	if !result.GitKeepCreated {
+		return nil
+	}
+	if err := ca.fsRepo.Remove(ReleaseNotesGitKeepPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove release notes gitkeep: %w", err)
 	}
 	return nil
 }

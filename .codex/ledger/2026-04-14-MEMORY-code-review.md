@@ -1,0 +1,30 @@
+- Goal (incl. success criteria):
+  - Review current workspace changes and return prioritized, actionable correctness findings in the required JSON format.
+  - Success means each finding is discrete, introduced by the patch, and supported by the diff/code context.
+- Constraints/Assumptions:
+  - Review only; do not modify or revert user changes.
+  - Final response must be exact JSON schema from the review instructions.
+  - Need to inspect staged, unstaged, and untracked files.
+- Key decisions:
+  - Focus on correctness/regression issues, not style or speculative concerns.
+- State:
+  - Finalizing findings.
+- Done:
+  - Read repo-level AGENTS instructions.
+  - Read existing cross-agent ledger for release notes implementation context.
+  - Collected git status and diff context.
+  - Validated likely issues in release-note frontmatter generation, note collection on branch reruns, archive rollback behavior, and PR-body validation.
+- Now:
+  - Draft the final JSON review output.
+- Next:
+  - None.
+- Open questions (UNCONFIRMED if needed):
+  - None.
+- Working set (files/ids/commands):
+  - `git status --short`
+  - `git diff --stat`
+  - `internal/usecase/create_release_note.go`
+  - `internal/usecase/collect_release_notes.go`
+  - `internal/usecase/archive_release_notes.go`
+  - `internal/usecase/prepare_pr_body.go`
+  - `internal/orchestrator/pr_release.go`

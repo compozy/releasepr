@@ -232,3 +232,40 @@ func TestGitRepository_CommitsSinceTag(t *testing.T) {
 		assert.Equal(t, 0, count)
 	})
 }
+
+func TestGitRepository_MoveFile(t *testing.T) {
+	t.Run("Should move tracked file with git mv", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		oldPwd, _ := os.Getwd()
+		err := os.Chdir(dir)
+		require.NoError(t, err)
+		defer os.Chdir(oldPwd)
+		gitRepo := &gitRepository{repo: repo}
+		err = os.MkdirAll(filepath.Join(dir, ".release-notes", "archive", "v1.0.0"), 0755)
+		require.NoError(t, err)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		notePath := filepath.Join(dir, ".release-notes", "note.md")
+		err = os.WriteFile(notePath, []byte("note"), 0644)
+		require.NoError(t, err)
+		_, err = wt.Add(".release-notes/note.md")
+		require.NoError(t, err)
+		_, err = wt.Commit("Add release note", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+			},
+		})
+		require.NoError(t, err)
+		err = gitRepo.MoveFile(
+			context.Background(),
+			".release-notes/note.md",
+			".release-notes/archive/v1.0.0/note.md",
+		)
+		require.NoError(t, err)
+		_, statErr := os.Stat(filepath.Join(dir, ".release-notes", "archive", "v1.0.0", "note.md"))
+		assert.NoError(t, statErr)
+		_, statErr = os.Stat(filepath.Join(dir, ".release-notes", "note.md"))
+		assert.Error(t, statErr)
+	})
+}

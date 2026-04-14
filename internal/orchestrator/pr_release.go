@@ -40,6 +40,11 @@ type PRReleaseOrchestrator struct {
 	stateRepo  repository.StateRepository
 }
 
+type releaseArtifacts struct {
+	changelog    string
+	releaseNotes string
+}
+
 // NewPRReleaseOrchestrator creates a new PR release orchestrator.
 func NewPRReleaseOrchestrator(
 	gitRepo repository.GitExtendedRepository,
@@ -163,7 +168,7 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 		return fmt.Errorf("failed to update package versions: %w", err)
 	}
 
-	changelog, err := o.generateChangelog(ctx, version, "release")
+	artifacts, err := o.generateChangelog(ctx, version, "release")
 	if err != nil {
 		return fmt.Errorf("failed to generate changelog: %w", err)
 	}
@@ -174,6 +179,9 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 			fmt.Sprintf("🛈 Dry-run complete – release %s prepared locally (no commit/push/PR).", version))
 		return nil
 	}
+	if _, err := o.archiveReleaseNotes(ctx, version); err != nil {
+		return fmt.Errorf("failed to archive release notes: %w", err)
+	}
 
 	if err := o.commitChanges(ctx, version); err != nil {
 		return fmt.Errorf("failed to commit changes: %w", err)
@@ -182,7 +190,13 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 	if !cfg.SkipPR {
-		if err := o.createPullRequest(ctx, version, changelog, branchName); err != nil {
+		if err := o.createPullRequest(
+			ctx,
+			version,
+			artifacts.changelog,
+			artifacts.releaseNotes,
+			branchName,
+		); err != nil {
 			return fmt.Errorf("failed to create pull request: %w", err)
 		}
 	}
@@ -250,29 +264,45 @@ func (o *PRReleaseOrchestrator) updatePackageVersions(_ context.Context, version
 	return nil
 }
 
-func (o *PRReleaseOrchestrator) generateChangelog(ctx context.Context, version, mode string) (string, error) {
+func (o *PRReleaseOrchestrator) generateChangelog(
+	ctx context.Context,
+	version, mode string,
+) (*releaseArtifacts, error) {
 	uc := &usecase.GenerateChangelogUseCase{
 		CliffSvc: o.cliffSvc,
 	}
 	changelog, err := uc.Execute(ctx, version, mode)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	fullChangelog, err := o.cliffSvc.GenerateFullChangelog(ctx, version)
 	if err != nil {
-		return "", fmt.Errorf("failed to build complete changelog: %w", err)
+		return nil, fmt.Errorf("failed to build complete changelog: %w", err)
 	}
-
-	// Write changelog to file using filesystem repository
+	collectUC := &usecase.CollectReleaseNotesUseCase{
+		FSRepo: o.fsRepo,
+	}
+	collection, err := collectUC.Execute(ctx, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect release notes: %w", err)
+	}
 	if err := afero.WriteFile(o.fsRepo, "CHANGELOG.md", []byte(fullChangelog), FilePermissionsReadWrite); err != nil {
-		return "", fmt.Errorf("failed to write changelog: %w", err)
+		return nil, fmt.Errorf("failed to write changelog: %w", err)
 	}
-	// Also create release notes
-	if err := afero.WriteFile(o.fsRepo, "RELEASE_NOTES.md", []byte(changelog), FilePermissionsReadWrite); err != nil {
-		return "", fmt.Errorf("failed to write release notes: %w", err)
+	releaseNotes := collection.RenderMarkdown()
+	releaseNotesDocument := buildReleaseNotesDocument(changelog, releaseNotes)
+	if err := afero.WriteFile(
+		o.fsRepo,
+		ReleaseNotesOutputFile,
+		[]byte(releaseNotesDocument),
+		FilePermissionsReadWrite,
+	); err != nil {
+		return nil, fmt.Errorf("failed to write release notes: %w", err)
 	}
-	return changelog, nil
+	return &releaseArtifacts{
+		changelog:    changelog,
+		releaseNotes: releaseNotes,
+	}, nil
 }
 
 func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version string) error {
@@ -285,8 +315,16 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 	// Add files
 	filesToAdd := []string{
 		"CHANGELOG.md",
+		ReleaseNotesOutputFile,
 		"package.json",
 		"package-lock.json",
+	}
+	gitKeepExists, err := afero.Exists(o.fsRepo, ReleaseNotesGitKeepPath)
+	if err != nil {
+		return fmt.Errorf("failed to inspect release notes gitkeep: %w", err)
+	}
+	if gitKeepExists {
+		filesToAdd = append(filesToAdd, ReleaseNotesGitKeepPath)
 	}
 	for _, pattern := range filesToAdd {
 		// Use git add with pattern, ignore errors for missing files
@@ -299,7 +337,34 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 	return o.gitRepo.Commit(ctx, message)
 }
 
-func (o *PRReleaseOrchestrator) createPullRequest(ctx context.Context, version, changelog, branchName string) error {
+func (o *PRReleaseOrchestrator) archiveReleaseNotes(
+	ctx context.Context,
+	version string,
+) (*usecase.ArchiveReleaseNotesResult, error) {
+	uc := &usecase.ArchiveReleaseNotesUseCase{
+		FSRepo:  o.fsRepo,
+		GitRepo: o.gitRepo,
+	}
+	return uc.Execute(ctx, version)
+}
+
+func buildReleaseNotesDocument(changelog, releaseNotes string) string {
+	trimmedChangelog := strings.TrimSpace(changelog)
+	trimmedReleaseNotes := strings.TrimSpace(releaseNotes)
+	switch {
+	case trimmedChangelog == "":
+		return trimmedReleaseNotes
+	case trimmedReleaseNotes == "":
+		return trimmedChangelog
+	default:
+		return trimmedChangelog + "\n\n" + trimmedReleaseNotes
+	}
+}
+
+func (o *PRReleaseOrchestrator) createPullRequest(
+	ctx context.Context,
+	version, changelog, releaseNotes, branchName string,
+) error {
 	// Create domain version object
 	ver, err := domain.NewVersion(version)
 	if err != nil {
@@ -307,8 +372,9 @@ func (o *PRReleaseOrchestrator) createPullRequest(ctx context.Context, version, 
 	}
 	// Create domain release object for PR body preparation
 	release := &domain.Release{
-		Version:   ver,
-		Changelog: changelog,
+		Version:      ver,
+		Changelog:    changelog,
+		ReleaseNotes: releaseNotes,
 	}
 	uc := &usecase.PreparePRBodyUseCase{}
 	body, err := uc.Execute(ctx, release)
@@ -371,18 +437,21 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 	saga *SagaExecutor,
 	cfg PRReleaseConfig,
 ) error {
-	compensator := NewCompensatingActions(o.gitRepo, o.githubRepo)
+	compensator := NewCompensatingActions(o.gitRepo, o.githubRepo, o.fsRepo)
 	originalBranch := saga.GetState().OriginalBranch
 
 	// Shared workflow context
-	wctx := &workflowContext{}
+	wctx := &workflowContext{
+		originalBranch: originalBranch,
+	}
 
 	// Add all workflow steps
 	o.addCheckChangesStep(saga, cfg, compensator, wctx)
 	o.addCalculateVersionStep(saga, cfg, compensator, wctx)
 	o.addCreateBranchStep(saga, cfg, compensator, wctx, originalBranch)
 	o.addPrepareReleaseArtifactsStep(saga, compensator, wctx)
-	o.addCommitChangesStep(saga, compensator, wctx)
+	o.addArchiveReleaseNotesStep(saga, cfg, compensator, wctx)
+	o.addCommitChangesStep(saga, cfg, compensator, wctx)
 	o.addPushBranchStep(saga, cfg, compensator, wctx)
 	o.addCreatePRStep(saga, cfg, compensator, wctx)
 
@@ -404,6 +473,8 @@ type workflowContext struct {
 	prNumber         int
 	createdInSession bool
 	changelog        string
+	releaseNotes     string
+	originalBranch   string
 }
 
 // Workflow step methods
@@ -629,7 +700,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			}
 			o.logger(ctx).Info("Preparing release artifacts", zap.String("version", wctx.version))
 			g, gctx := errgroup.WithContext(ctx)
-			var changelog string
+			var artifacts *releaseArtifacts
 			g.Go(func() error {
 				o.logger(gctx).Info("Updating package versions", zap.String("version", wctx.version))
 				if err := o.updatePackageVersions(gctx, wctx.version); err != nil {
@@ -642,7 +713,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			g.Go(func() error {
 				o.logger(gctx).Info("Generating changelog", zap.String("version", wctx.version))
 				var err error
-				changelog, err = o.generateChangelog(gctx, wctx.version, "release")
+				artifacts, err = o.generateChangelog(gctx, wctx.version, "release")
 				if err != nil {
 					o.logger(gctx).Error("Failed to generate changelog", zap.Error(err))
 					return fmt.Errorf("failed to generate changelog: %w", err)
@@ -653,24 +724,52 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			if err := g.Wait(); err != nil {
 				return nil, err
 			}
-			wctx.changelog = changelog
+			wctx.changelog = artifacts.changelog
+			wctx.releaseNotes = artifacts.releaseNotes
 			o.logger(ctx).Info("Release artifacts prepared successfully", zap.String("version", wctx.version))
 			return map[string]any{
 				"modified_files": []string{
 					"package.json",
 					"package-lock.json",
 					"CHANGELOG.md",
-					"RELEASE_NOTES.md",
+					ReleaseNotesOutputFile,
 				},
-				"changelog": changelog,
+				"changelog":     artifacts.changelog,
+				"release_notes": artifacts.releaseNotes,
 			}, nil
 		},
 		Compensate: compensator.RestoreFiles,
 	})
 }
 
+func (o *PRReleaseOrchestrator) addArchiveReleaseNotesStep(
+	saga *SagaExecutor,
+	cfg PRReleaseConfig,
+	compensator *CompensatingActions,
+	wctx *workflowContext,
+) {
+	saga.AddStep(SagaStep{
+		Name: "Archive Release Notes",
+		Type: domain.OperationTypeArchiveNotes,
+		Execute: func(ctx context.Context) (map[string]any, error) {
+			if wctx.version == "" || cfg.DryRun {
+				return map[string]any{"skip": true}, nil
+			}
+			o.logger(ctx).Info("Archiving release notes", zap.String("version", wctx.version))
+			result, err := o.archiveReleaseNotes(ctx, wctx.version)
+			if err != nil {
+				o.logger(ctx).Error("Failed to archive release notes", zap.Error(err))
+				return nil, fmt.Errorf("failed to archive release notes: %w", err)
+			}
+			return result.ToRollbackData(), nil
+		},
+		Compensate: compensator.RestoreArchivedReleaseNotes,
+	})
+}
+
 func (o *PRReleaseOrchestrator) addCommitChangesStep(
 	saga *SagaExecutor,
+	cfg PRReleaseConfig,
 	compensator *CompensatingActions,
 	wctx *workflowContext,
 ) {
@@ -678,7 +777,7 @@ func (o *PRReleaseOrchestrator) addCommitChangesStep(
 		Name: "Commit Changes",
 		Type: domain.OperationTypeCommitChanges,
 		Execute: func(ctx context.Context) (map[string]any, error) {
-			if wctx.version == "" {
+			if wctx.version == "" || cfg.DryRun {
 				return map[string]any{"skip": true}, nil
 			}
 			o.logger(ctx).Info("Committing changes", zap.String("version", wctx.version))
@@ -723,8 +822,10 @@ func (o *PRReleaseOrchestrator) addPushBranchStep(
 			}
 			o.logger(ctx).Info("Pushed branch", zap.String("branch", wctx.branchName))
 			return map[string]any{
-				"pushed":      true,
-				"branch_name": wctx.branchName,
+				"pushed":             true,
+				"branch_name":        wctx.branchName,
+				"created_in_session": wctx.createdInSession,
+				"original_branch":    wctx.originalBranch,
 			}, nil
 		},
 		Compensate: compensator.DeleteBranch,
@@ -752,8 +853,9 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				return nil, fmt.Errorf("failed to parse version: %w", err)
 			}
 			release := &domain.Release{
-				Version:   ver,
-				Changelog: changelog,
+				Version:      ver,
+				Changelog:    changelog,
+				ReleaseNotes: wctx.releaseNotes,
 			}
 			uc := &usecase.PreparePRBodyUseCase{}
 			body, err := uc.Execute(ctx, release)
@@ -808,7 +910,7 @@ func (o *PRReleaseOrchestrator) performRollback(ctx context.Context, sessionID s
 	}
 
 	// Create compensating actions handler
-	compensator := NewCompensatingActions(o.gitRepo, o.githubRepo)
+	compensator := NewCompensatingActions(o.gitRepo, o.githubRepo, o.fsRepo)
 
 	// Rebuild saga steps with compensating actions
 	// This is needed because the loaded saga doesn't have the function pointers
@@ -832,6 +934,7 @@ func (o *PRReleaseOrchestrator) rebuildSagaSteps(saga *SagaExecutor, compensator
 		domain.OperationTypeCreateBranch:      compensator.DeleteBranch,
 		domain.OperationTypeUpdatePackages:    compensator.RestoreFiles,
 		domain.OperationTypeGenerateChangelog: compensator.RestoreFiles,
+		domain.OperationTypeArchiveNotes:      compensator.RestoreArchivedReleaseNotes,
 		domain.OperationTypeCommitChanges:     compensator.ResetCommit,
 		domain.OperationTypePushBranch:        compensator.DeleteBranch,
 		domain.OperationTypeCreatePR:          compensator.ClosePullRequest,

@@ -80,6 +80,7 @@ func InitCommands() error {
 	rootCmd.PersistentPostRunE = func(cmd *cobra.Command, _ []string) error {
 		return logger.Sync(logger.FromContext(cmd.Context()))
 	}
+	rootCmd.AddCommand(NewAddNoteCmd(c.fsRepo))
 
 	// Individual commands have been replaced by orchestrator commands
 

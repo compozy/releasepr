@@ -73,6 +73,10 @@ func (m *mockGitExtendedRepository) DeleteRemoteBranch(ctx context.Context, name
 	args := m.Called(ctx, name)
 	return args.Error(0)
 }
+func (m *mockGitExtendedRepository) MoveFile(ctx context.Context, from, to string) error {
+	args := m.Called(ctx, from, to)
+	return args.Error(0)
+}
 func (m *mockGitExtendedRepository) RestoreFile(ctx context.Context, path string) error {
 	args := m.Called(ctx, path)
 	return args.Error(0)

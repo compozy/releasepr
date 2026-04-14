@@ -145,39 +145,6 @@ release:
   mode: replace
   draft: false
   prerelease: auto
-  header: |
-    ## PR Release CLI {{ .Version }}
-
-    Welcome to the latest release of the PR release automation CLI! 🎉
-
-    ### Installation
-
-    #### Binary Download
-    Download the appropriate `pr-release_{{ .Version }}_<os>_<arch>.tar.gz` asset for your platform and extract it.
-
-    #### Go Install
-    ```bash
-    go install github.com/compozy/releasepr@{{ .Tag }}
-    ```
-
-  footer: |
-    ### Verification
-
-    All release artifacts are signed and can be verified:
-
-    #### Checksums
-    ```bash
-    cosign verify-blob \
-      --signature checksums.txt.sig \
-      --certificate checksums.txt.pem \
-      checksums.txt
-    ```
-
-    **Full Changelog**: https://github.com/compozy/releasepr/compare/{{ .PreviousTag }}...{{ .Tag }}
-
-    ---
-
-    Thank you to all contributors who made this release possible! 🙏
 
 sboms:
   - artifacts: archive

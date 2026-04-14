@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -13,13 +12,13 @@ import (
 func TestPreparePRBodyUseCase_Execute(t *testing.T) {
 	t.Run("Should prepare PR body with release information", func(t *testing.T) {
 		uc := &PreparePRBodyUseCase{}
-		ctx := context.Background()
 		version, _ := domain.NewVersion("v1.0.0")
 		release := &domain.Release{
-			Version:   version,
-			Changelog: "### Features\n- New feature\n### Bug Fixes\n- Fixed bug",
+			Version:      version,
+			Changelog:    "### Features\n- New feature\n### Bug Fixes\n- Fixed bug",
+			ReleaseNotes: "### Release Notes\n\n#### Highlights\n\n##### Shared layout package\nMore details here.",
 		}
-		body, err := uc.Execute(ctx, release)
+		body, err := uc.Execute(t.Context(), release)
 		require.NoError(t, err)
 		assert.Contains(t, body, "Release v1.0.0")
 		assert.Contains(t, body, "This PR prepares the release of version v1.0.0")
@@ -27,16 +26,18 @@ func TestPreparePRBodyUseCase_Execute(t *testing.T) {
 		assert.Contains(t, body, "- New feature")
 		assert.Contains(t, body, "### Bug Fixes")
 		assert.Contains(t, body, "- Fixed bug")
+		assert.Contains(t, body, "### Release Notes")
+		assert.Contains(t, body, "##### Shared layout package")
 	})
 	t.Run("Should handle empty changelog", func(t *testing.T) {
 		uc := &PreparePRBodyUseCase{}
-		ctx := context.Background()
 		version, _ := domain.NewVersion("v0.1.0")
 		release := &domain.Release{
-			Version:   version,
-			Changelog: "",
+			Version:      version,
+			Changelog:    "",
+			ReleaseNotes: "",
 		}
-		body, err := uc.Execute(ctx, release)
+		body, err := uc.Execute(t.Context(), release)
 		require.NoError(t, err)
 		assert.Contains(t, body, "Release v0.1.0")
 		assert.Contains(t, body, "### Changelog")
@@ -57,7 +58,6 @@ func TestPreparePRBodyUseCase_Execute(t *testing.T) {
 	})
 	t.Run("Should format multi-line changelog correctly", func(t *testing.T) {
 		uc := &PreparePRBodyUseCase{}
-		ctx := context.Background()
 		version, _ := domain.NewVersion("v2.0.0")
 		release := &domain.Release{
 			Version: version,
@@ -74,8 +74,9 @@ func TestPreparePRBodyUseCase_Execute(t *testing.T) {
 ### Fixed
 - Memory leak in worker process
 - Race condition in cache`,
+			ReleaseNotes: "### Release Notes\n\n#### Features\n\n##### Templated example\nLiteral braces: {{ .Value }}",
 		}
-		body, err := uc.Execute(ctx, release)
+		body, err := uc.Execute(t.Context(), release)
 		require.NoError(t, err)
 		assert.Contains(t, body, "Release v2.0.0")
 		assert.Contains(t, body, "### Added")
@@ -84,5 +85,33 @@ func TestPreparePRBodyUseCase_Execute(t *testing.T) {
 		assert.Contains(t, body, "- Updated dependencies")
 		assert.Contains(t, body, "### Fixed")
 		assert.Contains(t, body, "- Memory leak in worker process")
+		assert.Contains(t, body, "{{ .Value }}")
+	})
+	t.Run("Should preserve literal script and javascript text in markdown", func(t *testing.T) {
+		uc := &PreparePRBodyUseCase{}
+		version, _ := domain.NewVersion("v2.0.0")
+		release := &domain.Release{
+			Version: version,
+			Changelog: `### Fixes
+- fix: block javascript: URLs in redirect params`,
+			ReleaseNotes: "### Release Notes\n\n```html\n<script>alert('xss')</script>\n```\n",
+		}
+		body, err := uc.Execute(t.Context(), release)
+		require.NoError(t, err)
+		assert.Contains(t, body, "javascript: URLs")
+		assert.Contains(t, body, "<script>alert('xss')</script>")
+	})
+	t.Run("Should reject markdown content with null bytes", func(t *testing.T) {
+		uc := &PreparePRBodyUseCase{}
+		version, _ := domain.NewVersion("v2.0.0")
+		release := &domain.Release{
+			Version:      version,
+			Changelog:    "### Features\nbad\x00value",
+			ReleaseNotes: "",
+		}
+		body, err := uc.Execute(t.Context(), release)
+		require.Error(t, err)
+		assert.Empty(t, body)
+		assert.ErrorContains(t, err, "changelog contains invalid null byte")
 	})
 }

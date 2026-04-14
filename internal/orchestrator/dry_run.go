@@ -22,14 +22,16 @@ import (
 )
 
 const (
-	githubActionsTrue    = "true"
-	envGithubIssueNumber = "GITHUB_ISSUE_NUMBER"
-	envGithubEventPath   = "GITHUB_EVENT_PATH"
-	envGithubHeadRef     = "GITHUB_HEAD_REF"
-	envGithubSHA         = "GITHUB_SHA"
-	envGithubActions     = "GITHUB_ACTIONS"
-	metadataJSONPath     = "dist/metadata.json"
-	artifactTypeArchive  = "Archive"
+	githubActionsTrue     = "true"
+	envGithubIssueNumber  = "GITHUB_ISSUE_NUMBER"
+	envGithubEventPath    = "GITHUB_EVENT_PATH"
+	envGithubHeadRef      = "GITHUB_HEAD_REF"
+	envGithubSHA          = "GITHUB_SHA"
+	envGithubActions      = "GITHUB_ACTIONS"
+	metadataJSONPath      = "dist/metadata.json"
+	artifactTypeArchive   = "Archive"
+	releaseHeaderTmplPath = ".goreleaser.release-header.md.tmpl"
+	releaseFooterTmplPath = ".goreleaser.release-footer.md.tmpl"
 )
 
 // DryRunConfig holds configuration for the dry-run orchestrator
@@ -174,7 +176,16 @@ func (o *DryRunOrchestrator) validateCliff(ctx context.Context) error {
 
 // runGoReleaserDry runs goreleaser release --snapshot --skip=publish --clean
 func (o *DryRunOrchestrator) runGoReleaserDry(ctx context.Context) error {
-	return o.goreleaserSvc.Run(ctx, "release", "--snapshot", "--skip=publish", "--clean")
+	return o.goreleaserSvc.Run(
+		ctx,
+		"release",
+		"--snapshot",
+		"--skip=publish",
+		"--clean",
+		"--release-notes="+ReleaseNotesOutputFile,
+		"--release-header-tmpl="+releaseHeaderTmplPath,
+		"--release-footer-tmpl="+releaseFooterTmplPath,
+	)
 }
 
 // extractVersionFromBranch extracts version from GITHUB_HEAD_REF or branch name

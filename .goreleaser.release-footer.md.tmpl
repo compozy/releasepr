@@ -1,0 +1,17 @@
+### Verification
+
+All release artifacts are signed and can be verified:
+
+#### Checksums
+```bash
+cosign verify-blob \
+  --signature checksums.txt.sig \
+  --certificate checksums.txt.pem \
+  checksums.txt
+```
+
+**Full Changelog**: https://github.com/compozy/releasepr/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+---
+
+Thank you to all contributors who made this release possible! 🙏
