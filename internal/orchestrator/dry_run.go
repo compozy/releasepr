@@ -282,14 +282,7 @@ func (o *DryRunOrchestrator) getPRNumber(_ context.Context) int {
 	}
 	// Try GitHub event payload as fallback
 	if eventPath := os.Getenv(envGithubEventPath); eventPath != "" {
-		// Validate the path is within the expected GitHub Actions directory
-		// GitHub Actions always sets this to a file in the runner's workspace
-		if !isValidGitHubEventPath(eventPath) {
-			return 0
-		}
-		// #nosec G304 - GITHUB_EVENT_PATH is validated and is a trusted environment variable
-		// set by GitHub Actions that always points to a controlled file
-		file, err := os.Open(eventPath)
+		file, err := openGitHubEventPayload(eventPath)
 		if err == nil {
 			defer file.Close()
 			var payload map[string]any
@@ -310,6 +303,23 @@ func (o *DryRunOrchestrator) getPRNumber(_ context.Context) int {
 		}
 	}
 	return 0
+}
+
+func openGitHubEventPayload(path string) (*os.File, error) {
+	cleanPath, ok := sanitizeGitHubEventPath(path)
+	if !ok {
+		return nil, fmt.Errorf("invalid github event path")
+	}
+	//nolint:gosec // Path is canonicalized and constrained to trusted GitHub Actions event locations.
+	fileInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		return nil, err
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("github event path is not a regular file")
+	}
+	//nolint:gosec // Path is canonicalized and constrained to trusted GitHub Actions event locations.
+	return os.Open(cleanPath)
 }
 
 // logStatus records orchestrator status messages respecting CI output flags
@@ -340,16 +350,17 @@ func findRepoRoot(startDir string) string {
 	return ""
 }
 
-// isValidGitHubEventPath validates that the GitHub event path is safe to open
-// GitHub Actions sets GITHUB_EVENT_PATH to a file in the runner's workspace
-func isValidGitHubEventPath(path string) bool {
+func sanitizeGitHubEventPath(path string) (string, bool) {
 	// Ensure the path is absolute
 	if !filepath.IsAbs(path) {
-		return false
+		return "", false
 	}
 
 	// Clean the path to remove any traversal attempts
 	cleanPath := filepath.Clean(path)
+	if filepath.Base(cleanPath) != "event.json" {
+		return "", false
+	}
 
 	// GitHub Actions typically sets this to a path like:
 	// /home/runner/work/_temp/_github_workflow/event.json
@@ -358,7 +369,7 @@ func isValidGitHubEventPath(path string) bool {
 
 	// Must end with .json
 	if !strings.HasSuffix(cleanPath, ".json") {
-		return false
+		return "", false
 	}
 
 	// Should contain typical GitHub Actions path patterns
@@ -377,5 +388,8 @@ func isValidGitHubEventPath(path string) bool {
 		}
 	}
 
-	return hasValidPattern
+	if !hasValidPattern {
+		return "", false
+	}
+	return cleanPath, true
 }

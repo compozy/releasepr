@@ -1,0 +1,46 @@
+- Goal (incl. success criteria):
+  - Implement cross-repo fix for release/changelog generation and security-focused dependency updates.
+  - Success means `releasepr` generates versioned release artifacts, `cliff.toml` no longer collapses list items, direct/vulnerable deps are updated, and `compozy/compozy` consumes the fixed `releasepr`.
+- Constraints/Assumptions:
+  - Do not overwrite unrelated local changes; `internal/orchestrator/pr_release.go` already has user changes.
+  - Must use `apply_patch` for manual edits.
+  - Must run `make lint` and `make test` before finishing.
+  - Cross-repo edits include `/Users/pedronauck/Dev/compozy/compozy`.
+- Key decisions:
+  - Rollout scope is cross-repo.
+  - Dependency scope is security + direct dependencies, not full ecosystem refresh.
+  - Root cause is in `releasepr`: PR artifacts are rendered from `--unreleased`/full changelog without target tag, while GitHub Release notes come from GoReleaser/GitHub metadata.
+- State:
+  - Completed for `releasepr`; consumer-repo follow-up is blocked only on publishing a new `releasepr` tag.
+- Done:
+  - Confirmed `compozy/compozy` GitHub release `v0.1.11` exists while remote `CHANGELOG.md` still shows unreleased content.
+  - Confirmed merged release PR `#94` carried `## Unreleased` content into `CHANGELOG.md`.
+  - Confirmed `releasepr` itself has the same defect in merged PR `#6` and in its current `CHANGELOG.md`.
+  - Confirmed `cliff.toml` template collapses list items due to whitespace trimming.
+  - Collected dependency update targets with `go list -m -u all` and `govulncheck`.
+  - Updated `releasepr` changelog generation to use versioned release mode for PR artifacts and full changelog rendering.
+  - Added deterministic unit tests for git-cliff command argument construction and output validation.
+  - Updated `releasepr` direct/vulnerable dependencies and Go toolchain references to Go `1.25.9`.
+  - Updated both repos' `cliff.toml` templates to preserve line breaks and explicit GitHub links.
+  - Updated both release workflows to accept both `release:` and `ci(release):` prefixes for dry-run/release triggers.
+  - Left `compozy/compozy` `PR_RELEASE_MODULE` unchanged at the published `releasepr` tag because no new `releasepr` version was released in this session.
+  - Ran `make lint` and `make test` successfully in `releasepr`.
+  - Ran `make lint` in `compozy/compozy`; it failed on pre-existing unrelated issues in files outside this change set.
+  - Ran `make test` in `compozy/compozy`; it progressed through a large portion of the suite, then stalled with no CPU/output for several minutes and had to be terminated.
+- Now:
+  - Final summary only.
+- Next:
+  - If needed later, cut/publish a new `releasepr` tag and only then bump `PR_RELEASE_MODULE` in `compozy/compozy`.
+- Open questions (UNCONFIRMED if needed):
+  - None.
+- Working set (files/ids/commands):
+  - `cliff.toml`
+  - `internal/service/cliff.go`
+  - `internal/service/cliff_impl.go`
+  - `internal/orchestrator/pr_release.go`
+  - `internal/orchestrator/*_test.go`
+  - `.github/workflows/release.yml`
+  - `/Users/pedronauck/Dev/compozy/compozy/.github/workflows/release.yml`
+  - `/Users/pedronauck/Dev/compozy/compozy/cliff.toml`
+  - `go list -m -u all`
+  - `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`

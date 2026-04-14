@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.2"
+          go-version: "1.25.9"
       - name: Run pr-release dry run
         run: go run . pr-release --dry-run --ci-output
 ```

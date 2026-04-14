@@ -11,5 +11,5 @@ import (
 type CliffService interface {
 	CalculateNextVersion(ctx context.Context, latestTag string) (*domain.Version, error)
 	GenerateChangelog(ctx context.Context, version, mode string) (string, error)
-	GenerateFullChangelog(ctx context.Context) (string, error)
+	GenerateFullChangelog(ctx context.Context, version string) (string, error)
 }

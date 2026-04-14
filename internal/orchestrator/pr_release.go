@@ -163,7 +163,7 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 		return fmt.Errorf("failed to update package versions: %w", err)
 	}
 
-	changelog, err := o.generateChangelog(ctx, version, "unreleased")
+	changelog, err := o.generateChangelog(ctx, version, "release")
 	if err != nil {
 		return fmt.Errorf("failed to generate changelog: %w", err)
 	}
@@ -259,7 +259,7 @@ func (o *PRReleaseOrchestrator) generateChangelog(ctx context.Context, version, 
 		return "", err
 	}
 
-	fullChangelog, err := o.cliffSvc.GenerateFullChangelog(ctx)
+	fullChangelog, err := o.cliffSvc.GenerateFullChangelog(ctx, version)
 	if err != nil {
 		return "", fmt.Errorf("failed to build complete changelog: %w", err)
 	}
@@ -295,7 +295,7 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 		}
 	}
 	// Commit if there are changes
-	message := fmt.Sprintf("ci(release): prepare release %s", version)
+	message := fmt.Sprintf("release: prepare release %s", version)
 	return o.gitRepo.Commit(ctx, message)
 }
 
@@ -315,7 +315,7 @@ func (o *PRReleaseOrchestrator) createPullRequest(ctx context.Context, version, 
 	if err != nil {
 		return fmt.Errorf("failed to prepare PR body: %w", err)
 	}
-	title := fmt.Sprintf("ci(release): Release %s", version)
+	title := fmt.Sprintf("release: Release %s", version)
 	labels := []string{"release-pending", "automated"}
 	// Create/Update PR with retry for network failures
 	return retry.Do(
@@ -642,7 +642,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			g.Go(func() error {
 				o.logger(gctx).Info("Generating changelog", zap.String("version", wctx.version))
 				var err error
-				changelog, err = o.generateChangelog(gctx, wctx.version, "unreleased")
+				changelog, err = o.generateChangelog(gctx, wctx.version, "release")
 				if err != nil {
 					o.logger(gctx).Error("Failed to generate changelog", zap.Error(err))
 					return fmt.Errorf("failed to generate changelog: %w", err)
@@ -761,7 +761,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				o.logger(ctx).Error("Failed to prepare PR body", zap.Error(err))
 				return nil, fmt.Errorf("failed to prepare PR body: %w", err)
 			}
-			title := fmt.Sprintf("ci(release): Release %s", wctx.version)
+			title := fmt.Sprintf("release: Release %s", wctx.version)
 			labels := []string{"release-pending", "automated"}
 			o.logger(ctx).Info("Creating or updating pull request",
 				zap.String("branch", wctx.branchName),

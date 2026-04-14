@@ -155,10 +155,10 @@ func (m *mockCliffService) GenerateChangelog(ctx context.Context, version, mode 
 	return args.String(0), args.Error(1)
 }
 
-func (m *mockCliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
+func (m *mockCliffService) GenerateFullChangelog(ctx context.Context, version string) (string, error) {
 	for _, call := range m.ExpectedCalls {
 		if call.Method == "GenerateFullChangelog" {
-			args := m.Called(ctx)
+			args := m.Called(ctx, version)
 			return args.String(0), args.Error(1)
 		}
 	}

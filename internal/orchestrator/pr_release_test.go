@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ import (
 
 func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	t.Run("Should successfully create a new release PR when changes exist", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -48,8 +47,8 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// Setup expectations for generateChangelog
 		changelog := "## v1.1.0\n\n### Features\n- New feature added\n### Bug Fixes\n- Fixed critical bug"
 		fullChangelog := "# Changelog\n\n" + changelog + "\n\n## v1.0.0\n\n### Misc\n- Previous entry"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
-		cliffSvc.On("GenerateFullChangelog", mock.Anything).Return(fullChangelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 
 		// Setup expectations for commitChanges
 		gitRepo.On("ConfigureUser", mock.Anything, "github-actions[bot]", "github-actions[bot]@users.noreply.github.com").
@@ -59,9 +58,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("AddFiles", mock.Anything, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package-lock.json").Return(nil).Once()
 		// tools/* updates removed
-		gitRepo.On("Commit", mock.Anything, "ci(release): prepare release v1.1.0").Return(nil).Once()
+		gitRepo.On("Commit", mock.Anything, "release: prepare release v1.1.0").Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
-		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "ci(release): Release v1.1.0",
+		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "release: Release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
 				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Features")
 			}),
@@ -102,7 +101,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should skip PR creation when no changes exist and force flag is false", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -134,7 +133,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should force PR creation when force flag is set despite no changes", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -160,7 +159,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.0.1\n\n### Maintenance\n- Forced release"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.0.1", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.0.1", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -188,7 +187,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error when GITHUB_TOKEN is missing", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -212,7 +211,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in version calculation", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -243,7 +242,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in changelog generation", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -267,7 +266,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation (use mock.Anything for context)
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
 			Return("", errors.New("cliff failed")).
 			Once()
 
@@ -285,7 +284,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in PR creation", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -308,7 +307,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -334,7 +333,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should skip PR creation when SkipPR flag is set", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -357,7 +356,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -378,7 +377,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should output CI format when CIOutput flag is set", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -420,7 +419,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle initial release when no tags exist", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -445,7 +444,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v0.1.0\n\n### Features\n- Initial release"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v0.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v0.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -469,7 +468,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	// NOTE: tools/ update tests removed (tools updates are no longer part of the pipeline)
 
 	t.Run("Should handle error when creating release branch fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -503,7 +502,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle commit errors gracefully", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -528,7 +527,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -548,7 +547,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should validate version format correctly", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -584,7 +583,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	t.Run("Should rollback branch creation when changelog generation fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -629,7 +628,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("GetFileStatus", mock.Anything, mock.Anything).Return("modified", nil).Maybe()
 
 		// Setup expectations for changelog generation - FAIL
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
 			Return("", errors.New("cliff failed")).Maybe() // May be called multiple times with retries
 
 		// Rollback expectations
@@ -668,7 +667,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	})
 
 	t.Run("Should rollback all completed steps when PR creation fails", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -702,7 +701,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
 			Return(changelog, nil).
 			Maybe()
 			// May be called multiple times with retries
@@ -769,7 +768,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	})
 
 	t.Run("Should handle rollback failure gracefully", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -801,7 +800,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
 			Return("", errors.New("changelog failed")).Maybe() // May be called multiple times with retries
 
 		// Add mocks for rollback operations
@@ -840,7 +839,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 
 func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 	t.Run("Should not save state when rollback is disabled", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -864,7 +863,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(3)
@@ -889,7 +888,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 	})
 
 	t.Run("Should not perform rollback when disabled even on failure", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -913,7 +912,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "unreleased").
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
 			Return("", errors.New("changelog failed")).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
@@ -933,7 +932,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 
 func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 	t.Run("Should validate branch name format", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -968,7 +967,7 @@ func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 
 func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 	t.Run("Should configure git user correctly", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -983,7 +982,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		gitRepo.On("AddFiles", ctx, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package-lock.json").Return(nil).Once()
 		// no tools files added
-		gitRepo.On("Commit", ctx, "ci(release): prepare release v1.2.0").Return(nil).Once()
+		gitRepo.On("Commit", ctx, "release: prepare release v1.2.0").Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 
@@ -994,7 +993,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 	})
 
 	t.Run("Should add all required files in correct order", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)

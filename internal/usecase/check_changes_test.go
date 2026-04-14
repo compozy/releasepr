@@ -61,8 +61,8 @@ func (m *mockCliffService) GenerateChangelog(ctx context.Context, version, mode 
 	return args.String(0), args.Error(1)
 }
 
-func (m *mockCliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
-	args := m.Called(ctx)
+func (m *mockCliffService) GenerateFullChangelog(ctx context.Context, version string) (string, error) {
+	args := m.Called(ctx, version)
 	return args.String(0), args.Error(1)
 }
 
@@ -82,7 +82,7 @@ func TestCheckChangesUseCase_Execute(t *testing.T) {
 			GitRepo:  gitRepo,
 			CliffSvc: cliffSvc,
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		nextVer, _ := domain.NewVersion("v1.1.0")
 		gitRepo.On("LatestTag", ctx).Return("v1.0.0", nil)
 		gitRepo.On("CommitsSinceTag", ctx, "v1.0.0").Return(5, nil)
@@ -101,7 +101,7 @@ func TestCheckChangesUseCase_Execute(t *testing.T) {
 			GitRepo:  gitRepo,
 			CliffSvc: cliffSvc,
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		gitRepo.On("LatestTag", ctx).Return("v1.0.0", nil)
 		gitRepo.On("CommitsSinceTag", ctx, "v1.0.0").Return(0, nil)
 		hasChanges, latestTag, err := uc.Execute(ctx)
@@ -118,7 +118,7 @@ func TestCheckChangesUseCase_Execute(t *testing.T) {
 			GitRepo:  gitRepo,
 			CliffSvc: cliffSvc,
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		gitRepo.On("LatestTag", ctx).Return("", nil)
 		hasChanges, latestTag, err := uc.Execute(ctx)
 		require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestCheckChangesUseCase_Execute(t *testing.T) {
 			GitRepo:  gitRepo,
 			CliffSvc: cliffSvc,
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		expectedErr := errors.New("git error")
 		gitRepo.On("LatestTag", ctx).Return("", expectedErr)
 		hasChanges, latestTag, err := uc.Execute(ctx)
@@ -152,7 +152,7 @@ func TestCheckChangesUseCase_Execute(t *testing.T) {
 			GitRepo:  gitRepo,
 			CliffSvc: cliffSvc,
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		gitRepo.On("LatestTag", ctx).Return("v1.0.0", nil)
 		expectedErr := errors.New("commit count error")
 		gitRepo.On("CommitsSinceTag", ctx, "v1.0.0").Return(0, expectedErr)

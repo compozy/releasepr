@@ -12,10 +12,12 @@ import (
 	"github.com/compozy/releasepr/internal/domain"
 )
 
+type commandExecutor func(ctx context.Context, name string, args ...string) ([]byte, error)
+
 // cliffService is the implementation of the CliffService interface.
 type cliffService struct {
-	// timeout for command execution
-	timeout time.Duration
+	timeout  time.Duration
+	executor commandExecutor
 }
 
 // NewCliffService creates a new CliffService.
@@ -23,6 +25,13 @@ func NewCliffService() CliffService {
 	return &cliffService{
 		timeout: DefaultCliffTimeout,
 	}
+}
+
+func (s *cliffService) runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if s.executor != nil {
+		return s.executor(ctx, name, args...)
+	}
+	return s.executeCommand(ctx, name, args...)
 }
 
 // sanitizeTag validates and sanitizes a git tag to prevent command injection.
@@ -121,7 +130,7 @@ func (s *cliffService) CalculateNextVersion(ctx context.Context, latestTag strin
 	// same tag being echoed back.  Therefore we only need --bumped-version.
 	args := []string{"--bumped-version"}
 
-	output, err := s.executeCommand(ctx, "git-cliff", args...)
+	output, err := s.runCommand(ctx, "git-cliff", args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute git-cliff: %w", err)
 	}
@@ -140,59 +149,68 @@ func (s *cliffService) CalculateNextVersion(ctx context.Context, latestTag strin
 	return domain.NewVersion(versionStr)
 }
 
-// GenerateChangelog generates a changelog.
-func (s *cliffService) GenerateChangelog(ctx context.Context, version, mode string) (string, error) {
-	// Sanitize inputs to prevent command injection
+func (s *cliffService) changelogArgs(version, mode string) ([]string, error) {
 	if version != "" {
 		if err := s.sanitizeVersion(version); err != nil {
-			return "", fmt.Errorf("invalid version: %w", err)
+			return nil, fmt.Errorf("invalid version: %w", err)
 		}
 	}
 	if err := s.sanitizeMode(mode); err != nil {
-		return "", fmt.Errorf("invalid mode: %w", err)
+		return nil, fmt.Errorf("invalid mode: %w", err)
 	}
-
-	var args []string
 	switch mode {
 	case "unreleased", "update":
-		// Generate changelog for unreleased changes (pending)
-		args = []string{"--unreleased"}
+		return []string{"--unreleased"}, nil
 	case "release":
-		// Generate changelog for a specific release tag
 		if version == "" {
-			return "", fmt.Errorf("version required for release mode")
+			return nil, fmt.Errorf("version required for release mode")
 		}
-		args = []string{"--tag", version}
+		return []string{"--tag", version}, nil
 	default:
-		// Default to current/unreleased
-		args = []string{"--unreleased"}
+		return []string{"--unreleased"}, nil
 	}
+}
 
-	output, err := s.executeCommand(ctx, "git-cliff", args...)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
+func (s *cliffService) fullChangelogArgs(version string) ([]string, error) {
+	if version == "" {
+		return []string{"-o", "-"}, nil
 	}
+	if err := s.sanitizeVersion(version); err != nil {
+		return nil, fmt.Errorf("invalid version: %w", err)
+	}
+	return []string{"--tag", version, "-o", "-"}, nil
+}
 
-	// Validate output is not empty
+func (s *cliffService) validateChangelogOutput(output []byte) (string, error) {
 	changelog := strings.TrimSpace(string(output))
 	if changelog == "" {
 		return "", fmt.Errorf("git-cliff returned empty changelog")
 	}
-
 	return changelog, nil
 }
 
-// GenerateFullChangelog renders the complete changelog using git-cliff.
-func (s *cliffService) GenerateFullChangelog(ctx context.Context) (string, error) {
-	output, err := s.executeCommand(ctx, "git-cliff", "-o", "-")
+// GenerateChangelog generates a changelog.
+func (s *cliffService) GenerateChangelog(ctx context.Context, version, mode string) (string, error) {
+	args, err := s.changelogArgs(version, mode)
+	if err != nil {
+		return "", err
+	}
+	output, err := s.runCommand(ctx, "git-cliff", args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
 	}
+	return s.validateChangelogOutput(output)
+}
 
-	changelog := string(output)
-	if strings.TrimSpace(changelog) == "" {
-		return "", fmt.Errorf("git-cliff returned empty changelog")
+// GenerateFullChangelog renders the complete changelog using git-cliff.
+func (s *cliffService) GenerateFullChangelog(ctx context.Context, version string) (string, error) {
+	args, err := s.fullChangelogArgs(version)
+	if err != nil {
+		return "", err
 	}
-
-	return changelog, nil
+	output, err := s.runCommand(ctx, "git-cliff", args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
+	}
+	return s.validateChangelogOutput(output)
 }
