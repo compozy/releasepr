@@ -45,18 +45,24 @@ func (ca *CompensatingActions) DeleteBranch(ctx context.Context, rollbackData ma
 	if !ok {
 		return fmt.Errorf("branch_name not found in rollback data")
 	}
-	// Check if branch was created in this session
-	if !ca.wasCreatedInSession(rollbackData) {
+	localCreated := ca.localBranchCreatedInSession(rollbackData)
+	remoteCreated := ca.remoteBranchCreatedInSession(rollbackData)
+	if !localCreated && !remoteCreated {
 		log.Info("Branch existed before session, skipping deletion", zap.String("branch", branchName))
 		return nil
 	}
-	// Switch away from branch if currently on it
-	if err := ca.switchFromBranchIfNeeded(ctx, branchName, rollbackData); err != nil {
-		return err
+	if localCreated {
+		// Switch away from branch if currently on it
+		if err := ca.switchFromBranchIfNeeded(ctx, branchName, rollbackData); err != nil {
+			return err
+		}
+		// Delete local branch
+		if err := ca.deleteLocalBranchIfExists(ctx, branchName); err != nil {
+			return err
+		}
 	}
-	// Delete local branch
-	if err := ca.deleteLocalBranchIfExists(ctx, branchName); err != nil {
-		return err
+	if !remoteCreated {
+		return nil
 	}
 	// Delete remote branch if pushed
 	return ca.deleteRemoteBranchIfPushed(ctx, branchName, rollbackData)
@@ -69,6 +75,20 @@ func (ca *CompensatingActions) wasCreatedInSession(rollbackData map[string]any) 
 		return false // Default to false if not set
 	}
 	return createdInSession
+}
+
+func (ca *CompensatingActions) localBranchCreatedInSession(rollbackData map[string]any) bool {
+	if created, ok := rollbackData["local_created_in_session"].(bool); ok {
+		return created
+	}
+	return ca.wasCreatedInSession(rollbackData)
+}
+
+func (ca *CompensatingActions) remoteBranchCreatedInSession(rollbackData map[string]any) bool {
+	if created, ok := rollbackData["remote_created_in_session"].(bool); ok {
+		return created
+	}
+	return ca.wasCreatedInSession(rollbackData)
 }
 
 // switchFromBranchIfNeeded switches away from the branch if currently on it

@@ -169,6 +169,65 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		}
 	})
 
+	t.Run("Should force push when release branch already exists remotely", func(t *testing.T) {
+		ctx := t.Context()
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		stateRepo := new(mockStateRepository)
+
+		t.Setenv("GITHUB_TOKEN", "test-token")
+		stateRepo.On("Save", mock.Anything, mock.Anything).Return(nil).Maybe()
+		gitRepo.On("GetCurrentBranch", mock.Anything).Return("main", nil).Once()
+		gitRepo.On("LatestTag", mock.Anything).Return("v1.0.0", nil).Times(2)
+		gitRepo.On("CommitsSinceTag", mock.Anything, "v1.0.0").Return(10, nil).Once()
+		nextVersion, _ := domain.NewVersion("v1.1.0")
+		cliffSvc.On("CalculateNextVersion", mock.Anything, "v1.0.0").Return(nextVersion, nil).Times(2)
+
+		branchName := "release/v1.1.0"
+		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).Return(true, nil).Once()
+		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
+		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
+
+		changelog := "## v1.1.0\n\n### Fixes\n- Refresh release automation"
+		fullChangelog := "# Changelog\n\n" + changelog
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
+
+		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("PushBranchForce", mock.Anything, branchName).Return(nil).Once()
+		githubRepo.On(
+			"CreateOrUpdatePR",
+			mock.Anything,
+			branchName,
+			"main",
+			"release: Release v1.1.0",
+			mock.MatchedBy(func(body string) bool {
+				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Fixes")
+			}),
+			[]string{"release-pending", "automated"},
+		).Return(nil).Once()
+
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		orch.stateRepo = stateRepo
+		cfg := PRReleaseConfig{
+			EnableRollback: true,
+		}
+
+		err := orch.Execute(ctx, cfg)
+		require.NoError(t, err)
+
+		gitRepo.AssertNotCalled(t, "PushBranch", mock.Anything, branchName)
+		gitRepo.AssertExpectations(t)
+		githubRepo.AssertExpectations(t)
+		cliffSvc.AssertExpectations(t)
+	})
+
 	t.Run("Should skip PR creation when no changes exist and force flag is false", func(t *testing.T) {
 		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
@@ -687,6 +746,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		branchName := "release/v1.1.0"
 		// Mock ListLocalBranches to return branches WITHOUT the target branch (so it gets created)
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).Return(false, nil).Once()
 		// Once for create, once during rollback check
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
@@ -766,6 +826,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("GetCurrentBranch", mock.Anything).Return("main", nil).Once()
 		// Mock ListLocalBranches to return branches WITHOUT the target branch (so it gets created)
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).Return(false, nil).Once()
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -864,6 +925,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		branchName := "release/v1.1.0"
 		// Mock ListLocalBranches to return branches WITHOUT the target branch (so it gets created)
 		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
+		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).Return(false, nil).Once()
 		gitRepo.On("GetCurrentBranch", mock.Anything).Return("main", nil).Once()
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()

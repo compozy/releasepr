@@ -476,15 +476,18 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 
 // workflowContext holds shared state for workflow execution
 type workflowContext struct {
-	version          string
-	branchName       string
-	hasChanges       bool
-	latestTag        string
-	prNumber         int
-	createdInSession bool
-	changelog        string
-	releaseNotes     string
-	originalBranch   string
+	version                string
+	branchName             string
+	hasChanges             bool
+	latestTag              string
+	prNumber               int
+	createdInSession       bool
+	localCreatedInSession  bool
+	remoteCreatedInSession bool
+	remoteExisted          bool
+	changelog              string
+	releaseNotes           string
+	originalBranch         string
 }
 
 // Workflow step methods
@@ -583,8 +586,11 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 				}
 			}
 			o.logBranchStatus(ctx, branchName, branchExists, remoteExists)
-			wctx.createdInSession = !branchExists
-			if wctx.createdInSession {
+			wctx.localCreatedInSession = !branchExists
+			wctx.remoteCreatedInSession = !remoteExists
+			wctx.remoteExisted = remoteExists
+			wctx.createdInSession = wctx.localCreatedInSession && wctx.remoteCreatedInSession
+			if wctx.localCreatedInSession {
 				if err := o.createReleaseBranch(ctx, branchName); err != nil {
 					return nil, fmt.Errorf("failed to create release branch %s: %w", branchName, err)
 				}
@@ -594,10 +600,12 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 			}
 			o.logger(ctx).Info("Checked out release branch", zap.String("branch", branchName))
 			return map[string]any{
-				"branch_name":        branchName,
-				"original_branch":    originalBranch,
-				"created_in_session": wctx.createdInSession,
-				"remote_exists":      remoteExists,
+				"branch_name":               branchName,
+				"original_branch":           originalBranch,
+				"created_in_session":        wctx.createdInSession,
+				"local_created_in_session":  wctx.localCreatedInSession,
+				"remote_created_in_session": wctx.remoteCreatedInSession,
+				"remote_exists":             remoteExists,
 			}, nil
 		},
 		Compensate: compensator.DeleteBranch,
@@ -817,14 +825,14 @@ func (o *PRReleaseOrchestrator) addPushBranchStep(
 			if wctx.version == "" || cfg.DryRun {
 				return map[string]any{"skip": true}, nil
 			}
-			// Use force push for existing branches to handle non-fast-forward updates
+			// Use force push when the remote branch already existed to update the automated release PR branch.
 			var err error
-			if wctx.createdInSession {
-				o.logger(ctx).Info("Pushing new branch", zap.String("branch", wctx.branchName))
-				err = o.gitRepo.PushBranch(ctx, wctx.branchName)
-			} else {
+			if wctx.remoteExisted {
 				o.logger(ctx).Info("Force pushing branch", zap.String("branch", wctx.branchName))
 				err = o.gitRepo.PushBranchForce(ctx, wctx.branchName)
+			} else {
+				o.logger(ctx).Info("Pushing new branch", zap.String("branch", wctx.branchName))
+				err = o.gitRepo.PushBranch(ctx, wctx.branchName)
 			}
 			if err != nil {
 				o.logger(ctx).Error("Failed to push branch", zap.String("branch", wctx.branchName), zap.Error(err))
@@ -832,10 +840,12 @@ func (o *PRReleaseOrchestrator) addPushBranchStep(
 			}
 			o.logger(ctx).Info("Pushed branch", zap.String("branch", wctx.branchName))
 			return map[string]any{
-				"pushed":             true,
-				"branch_name":        wctx.branchName,
-				"created_in_session": wctx.createdInSession,
-				"original_branch":    wctx.originalBranch,
+				"pushed":                    true,
+				"branch_name":               wctx.branchName,
+				"created_in_session":        wctx.createdInSession,
+				"local_created_in_session":  wctx.localCreatedInSession,
+				"remote_created_in_session": wctx.remoteCreatedInSession,
+				"original_branch":           wctx.originalBranch,
 			}, nil
 		},
 		Compensate: compensator.DeleteBranch,
