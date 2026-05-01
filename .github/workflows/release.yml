@@ -12,7 +12,9 @@ on:
   # Trigger on PR events for dry-run checks
   pull_request:
     types:
-      - synchronize  # Only on updates to existing PRs
+      - opened
+      - synchronize
+      - reopened
     branches:
       - main
 
