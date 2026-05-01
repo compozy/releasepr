@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.20 - 2026-05-01
+
+
+
+### 🐛 Bug Fixes
+
+- Restore automatic release workflows
+- Align bun lockfile with manifest
+- Update existing release branch
+- Dispatch release pr checks
+
+
+
+## 0.0.19 - 2026-05-01
+
+
+
+### 🐛 Bug Fixes
+
+- Publish release notes body contract
+
+
+
+## 0.0.18 - 2026-05-01
+
+
+
+### 🐛 Bug Fixes
+
+- Scope release notes changelog
+
+
+
 ## 0.0.17 - 2026-04-14
+
+
+
+### Other Changes
+
+- Prepare release v0.0.17 (#8)
 
 
 
@@ -152,6 +191,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(repo)* Fix build
 
 
+[0.0.20]: https://github.com/compozy/releasepr/compare/v0.0.19...v0.0.20
+[0.0.19]: https://github.com/compozy/releasepr/compare/v0.0.18...v0.0.19
+[0.0.18]: https://github.com/compozy/releasepr/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/compozy/releasepr/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/compozy/releasepr/compare/v0.0.15...v0.0.16
 [0.0.15]: https://github.com/compozy/releasepr/compare/v0.0.14...v0.0.15
