@@ -168,7 +168,7 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 		return fmt.Errorf("failed to update package versions: %w", err)
 	}
 
-	artifacts, err := o.generateChangelog(ctx, version, "release")
+	artifacts, err := o.generateChangelog(ctx, version)
 	if err != nil {
 		return fmt.Errorf("failed to generate changelog: %w", err)
 	}
@@ -266,12 +266,12 @@ func (o *PRReleaseOrchestrator) updatePackageVersions(_ context.Context, version
 
 func (o *PRReleaseOrchestrator) generateChangelog(
 	ctx context.Context,
-	version, mode string,
+	version string,
 ) (*releaseArtifacts, error) {
 	uc := &usecase.GenerateChangelogUseCase{
 		CliffSvc: o.cliffSvc,
 	}
-	changelog, err := uc.Execute(ctx, version, mode)
+	changelog, err := uc.Execute(ctx, version, "release")
 	if err != nil {
 		return nil, err
 	}
@@ -349,16 +349,26 @@ func (o *PRReleaseOrchestrator) archiveReleaseNotes(
 }
 
 func buildReleaseNotesDocument(changelog, releaseNotes string) string {
-	trimmedChangelog := strings.TrimSpace(changelog)
+	versionHeading := releaseNotesVersionHeading(changelog)
 	trimmedReleaseNotes := strings.TrimSpace(releaseNotes)
 	switch {
-	case trimmedChangelog == "":
+	case versionHeading == "":
 		return trimmedReleaseNotes
 	case trimmedReleaseNotes == "":
-		return trimmedChangelog
+		return versionHeading
 	default:
-		return trimmedChangelog + "\n\n" + trimmedReleaseNotes
+		return versionHeading + "\n\n" + trimmedReleaseNotes
 	}
+}
+
+func releaseNotesVersionHeading(changelog string) string {
+	for _, line := range strings.Split(changelog, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (o *PRReleaseOrchestrator) createPullRequest(
@@ -713,7 +723,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			g.Go(func() error {
 				o.logger(gctx).Info("Generating changelog", zap.String("version", wctx.version))
 				var err error
-				artifacts, err = o.generateChangelog(gctx, wctx.version, "release")
+				artifacts, err = o.generateChangelog(gctx, wctx.version)
 				if err != nil {
 					o.logger(gctx).Error("Failed to generate changelog", zap.Error(err))
 					return fmt.Errorf("failed to generate changelog: %w", err)

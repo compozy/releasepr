@@ -17,7 +17,7 @@ import (
 )
 
 func TestPRReleaseOrchestrator_generateChangelog(t *testing.T) {
-	t.Run("Should write release notes from scoped changelog and manual notes", func(t *testing.T) {
+	t.Run("Should write release notes from version heading and manual notes", func(t *testing.T) {
 		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
@@ -37,7 +37,7 @@ Only this release needs these notes.
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(scopedChangelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
-		artifacts, err := orch.generateChangelog(ctx, "v1.1.0", "release")
+		artifacts, err := orch.generateChangelog(ctx, "v1.1.0")
 		require.NoError(t, err)
 		assert.Equal(t, scopedChangelog, artifacts.changelog)
 		assert.Contains(t, artifacts.releaseNotes, "Only this release needs these notes.")
@@ -47,12 +47,39 @@ Only this release needs these notes.
 		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
 		require.NoError(t, err)
 		releaseNotesDocument := string(releaseNotesData)
-		assert.Contains(t, releaseNotesDocument, scopedChangelog)
+		assert.True(t, strings.HasPrefix(releaseNotesDocument, "## v1.1.0\n\n### Release Notes"))
 		assert.Contains(t, releaseNotesDocument, "### Release Notes")
 		assert.Contains(t, releaseNotesDocument, "Only this release needs these notes.")
 		assert.NotContains(t, releaseNotesDocument, "# Changelog")
+		assert.NotContains(t, releaseNotesDocument, "### Features")
+		assert.NotContains(t, releaseNotesDocument, "Current release")
 		assert.NotContains(t, releaseNotesDocument, "## v1.0.0")
 		assert.NotContains(t, releaseNotesDocument, "Previous release")
+		cliffSvc.AssertExpectations(t)
+	})
+
+	t.Run("Should write only version heading when manual notes are absent", func(t *testing.T) {
+		ctx := t.Context()
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		scopedChangelog := "## v2.0.0\n\n### Features\n- Current release"
+		fullChangelog := "# Changelog\n\n" + scopedChangelog
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v2.0.0", "release").Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		artifacts, err := orch.generateChangelog(ctx, "v2.0.0")
+		require.NoError(t, err)
+		assert.Equal(t, scopedChangelog, artifacts.changelog)
+		assert.Empty(t, artifacts.releaseNotes)
+		changelogData, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
+		require.NoError(t, err)
+		assert.Equal(t, fullChangelog, string(changelogData))
+		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
+		require.NoError(t, err)
+		assert.Equal(t, "## v2.0.0", string(releaseNotesData))
 		cliffSvc.AssertExpectations(t)
 	})
 }
@@ -138,7 +165,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		if releaseNotesExists {
 			data, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
 			require.NoError(t, err)
-			assert.Equal(t, changelog, string(data))
+			assert.Equal(t, "## v1.1.0", string(data))
 		}
 	})
 

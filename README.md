@@ -7,8 +7,8 @@
 The tool wraps the end-to-end release workflow:
 
 - Calculates the next semantic version based on commits since the last tag
-- Generates release notes via `git-cliff`
-- Merges optional custom release notes from `.release-notes/*.md`
+- Generates changelogs via `git-cliff`
+- Generates release notes from the version heading plus optional `.release-notes/*.md` content
 - Creates or updates release branches and tags
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
@@ -162,6 +162,8 @@ Production releases are published from `RELEASE_NOTES.md`. The release workflow 
 - `--release-notes=RELEASE_NOTES.md`
 - `--release-header-tmpl=.goreleaser.release-header.md.tmpl`
 - `--release-footer-tmpl=.goreleaser.release-footer.md.tmpl`
+
+`RELEASE_NOTES.md` intentionally contains only the release version heading and custom release notes. Conventional commit groups remain in `CHANGELOG.md` and the release PR body.
 
 ---
 
