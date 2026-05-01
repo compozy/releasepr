@@ -35,6 +35,53 @@ func TestReleaseWorkflowConfig(t *testing.T) {
 		assert.Contains(t, types, "synchronize")
 		assert.Contains(t, types, "reopened")
 	})
+
+	t.Run("Should dispatch release pull request checks after automation updates", func(t *testing.T) {
+		root := loadWorkflowRoot(t, ".github/workflows/release.yml")
+		permissions := mappingValue(root, "permissions")
+		require.NotNil(t, permissions)
+		require.Equal(t, "write", mappingValue(permissions, "actions").Value)
+
+		workflowDispatch := mappingValue(mappingValue(root, "on"), "workflow_dispatch")
+		require.NotNil(t, workflowDispatch)
+		inputs := mappingValue(workflowDispatch, "inputs")
+		require.NotNil(t, inputs)
+		assert.NotNil(t, mappingValue(inputs, "mode"))
+		assert.NotNil(t, mappingValue(inputs, "head_ref"))
+		assert.NotNil(t, mappingValue(inputs, "pr_number"))
+
+		jobs := mappingValue(root, "jobs")
+		releasePR := mappingValue(jobs, "release-pr")
+		require.NotNil(t, releasePR)
+		releasePRIf := mappingValue(releasePR, "if")
+		require.NotNil(t, releasePRIf)
+		assert.Contains(t, releasePRIf.Value, "inputs.mode == 'release-pr'")
+
+		dispatchStep := findStepByName(t, releasePR, "Dispatch Release PR Checks")
+		dispatchRun := mappingValue(dispatchStep, "run")
+		require.NotNil(t, dispatchRun)
+		assert.Contains(t, dispatchRun.Value, "gh workflow run ci.yml --ref \"$branch\"")
+		assert.Contains(t, dispatchRun.Value, "gh workflow run release.yml")
+		assert.Contains(t, dispatchRun.Value, "-f mode=dry-run")
+
+		dryRun := mappingValue(jobs, "dry-run")
+		require.NotNil(t, dryRun)
+		dryRunIf := mappingValue(dryRun, "if")
+		require.NotNil(t, dryRunIf)
+		assert.Contains(t, dryRunIf.Value, "github.event_name == 'workflow_dispatch'")
+		assert.Contains(t, dryRunIf.Value, "inputs.mode == 'dry-run'")
+
+		checkoutStep := findStepByUses(t, dryRun, "actions/checkout@v4")
+		checkoutWith := mappingValue(checkoutStep, "with")
+		require.NotNil(t, checkoutWith)
+		assert.Contains(t, mappingValue(checkoutWith, "ref").Value, "inputs.head_ref")
+
+		dryRunStep := findStepByName(t, dryRun, "Run Dry-Run Orchestrator")
+		dryRunEnv := mappingValue(dryRunStep, "env")
+		require.NotNil(t, dryRunEnv)
+		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_HEAD_REF").Value, "inputs.head_ref")
+		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_ISSUE_NUMBER").Value, "inputs.pr_number")
+	})
 }
 
 func TestPackageManifestConfig(t *testing.T) {
@@ -104,6 +151,38 @@ func hasJobWithoutNeeds(jobs *yaml.Node) bool {
 		}
 	}
 	return false
+}
+
+func findStepByName(t *testing.T, job *yaml.Node, name string) *yaml.Node {
+	t.Helper()
+	for _, step := range workflowSteps(t, job) {
+		nameNode := mappingValue(step, "name")
+		if nameNode != nil && nameNode.Value == name {
+			return step
+		}
+	}
+	t.Fatalf("step %q not found", name)
+	return nil
+}
+
+func findStepByUses(t *testing.T, job *yaml.Node, uses string) *yaml.Node {
+	t.Helper()
+	for _, step := range workflowSteps(t, job) {
+		usesNode := mappingValue(step, "uses")
+		if usesNode != nil && usesNode.Value == uses {
+			return step
+		}
+	}
+	t.Fatalf("step using %q not found", uses)
+	return nil
+}
+
+func workflowSteps(t *testing.T, job *yaml.Node) []*yaml.Node {
+	t.Helper()
+	steps := mappingValue(job, "steps")
+	require.NotNil(t, steps)
+	require.Equal(t, yaml.SequenceNode, steps.Kind)
+	return steps.Content
 }
 
 func pullRequestTypes(t *testing.T, root *yaml.Node) []string {

@@ -21,11 +21,27 @@ on:
   # Manual trigger for emergency releases
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Workflow mode to run"
+        required: false
+        type: choice
+        default: release-pr
+        options:
+          - release-pr
+          - dry-run
       force_release:
         description: "Force a release even if no changes"
         required: false
         type: boolean
         default: false
+      head_ref:
+        description: "Release PR head ref for dispatched dry-run validation"
+        required: false
+        type: string
+      pr_number:
+        description: "Release PR number for dispatched dry-run validation"
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -39,6 +55,7 @@ env:
   NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
 permissions:
+  actions: write
   contents: write
   packages: write
   pull-requests: write
@@ -56,7 +73,8 @@ jobs:
        !startsWith(github.event.head_commit.message, 'ci(release):') &&
        !startsWith(github.event.head_commit.message, 'Merge pull request') &&
        github.event.head_commit.author.name != 'github-actions[bot]') ||
-      (github.event_name == 'workflow_dispatch')
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.mode == 'release-pr' || inputs.mode == ''))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,14 +107,48 @@ jobs:
             ./bin/pr-release pr-release --enable-rollback --ci-output
           fi
 
+      - name: Dispatch Release PR Checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          branch="$(git branch --show-current)"
+          if [[ ! "$branch" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Expected to be on a release branch after orchestration, got '$branch'"
+            exit 1
+          fi
+
+          pr_number="$(gh pr view "$branch" --json number --jq '.number')"
+          if [[ -z "$pr_number" ]]; then
+            echo "::error::Could not resolve pull request for $branch"
+            exit 1
+          fi
+
+          echo "Dispatching CI workflow for $branch"
+          gh workflow run ci.yml --ref "$branch"
+
+          echo "Dispatching release dry-run workflow for $branch (PR #$pr_number)"
+          gh workflow run release.yml \
+            --ref "$branch" \
+            -f mode=dry-run \
+            -f head_ref="$branch" \
+            -f pr_number="$pr_number"
+
   # Job 2: Dry-run checks on Release PR
   dry-run:
     name: Dry-Run Release Check
     if: |
-      github.event_name == 'pull_request' &&
       (
-        startsWith(github.event.pull_request.title, 'release: Release ') ||
-        startsWith(github.event.pull_request.title, 'ci(release): Release ')
+        github.event_name == 'pull_request' &&
+        (
+          startsWith(github.event.pull_request.title, 'release: Release ') ||
+          startsWith(github.event.pull_request.title, 'ci(release): Release ')
+        )
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.mode == 'dry-run'
       )
     runs-on: ubuntu-latest
     steps:
@@ -104,6 +156,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.ref }}
 
       - uses: ./.github/actions/setup-go
         with:
@@ -128,8 +181,8 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-          GITHUB_ISSUE_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_HEAD_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.head_ref }}
+          GITHUB_ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
         run: ./bin/pr-release dry-run --ci-output
 
