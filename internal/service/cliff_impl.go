@@ -165,7 +165,7 @@ func (s *cliffService) changelogArgs(version, mode string) ([]string, error) {
 		if version == "" {
 			return nil, fmt.Errorf("version required for release mode")
 		}
-		return []string{"--tag", version}, nil
+		return []string{"--unreleased", "--tag", version, "--strip", "all"}, nil
 	default:
 		return []string{"--unreleased"}, nil
 	}

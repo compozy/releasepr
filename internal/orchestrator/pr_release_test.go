@@ -16,6 +16,47 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func TestPRReleaseOrchestrator_generateChangelog(t *testing.T) {
+	t.Run("Should write release notes from scoped changelog and manual notes", func(t *testing.T) {
+		ctx := t.Context()
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		scopedChangelog := "## v1.1.0\n\n### Features\n- Current release"
+		fullChangelog := "# Changelog\n\n" + scopedChangelog + "\n\n## v1.0.0\n\n### Features\n- Previous release"
+		require.NoError(t, fsRepo.MkdirAll(".release-notes", 0755))
+		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/manual.md", []byte(`---
+title: Manual upgrade guide
+type: highlight
+---
+
+Only this release needs these notes.
+`), 0644))
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		artifacts, err := orch.generateChangelog(ctx, "v1.1.0", "release")
+		require.NoError(t, err)
+		assert.Equal(t, scopedChangelog, artifacts.changelog)
+		assert.Contains(t, artifacts.releaseNotes, "Only this release needs these notes.")
+		changelogData, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
+		require.NoError(t, err)
+		assert.Equal(t, fullChangelog, string(changelogData))
+		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
+		require.NoError(t, err)
+		releaseNotesDocument := string(releaseNotesData)
+		assert.Contains(t, releaseNotesDocument, scopedChangelog)
+		assert.Contains(t, releaseNotesDocument, "### Release Notes")
+		assert.Contains(t, releaseNotesDocument, "Only this release needs these notes.")
+		assert.NotContains(t, releaseNotesDocument, "# Changelog")
+		assert.NotContains(t, releaseNotesDocument, "## v1.0.0")
+		assert.NotContains(t, releaseNotesDocument, "Previous release")
+		cliffSvc.AssertExpectations(t)
+	})
+}
+
 func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	t.Run("Should successfully create a new release PR when changes exist", func(t *testing.T) {
 		ctx := t.Context()
