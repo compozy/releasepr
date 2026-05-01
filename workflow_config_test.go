@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,41 @@ func TestReleaseWorkflowConfig(t *testing.T) {
 		assert.Contains(t, types, "synchronize")
 		assert.Contains(t, types, "reopened")
 	})
+}
+
+func TestPackageManifestConfig(t *testing.T) {
+	t.Run("Should keep Bun lockfile aligned with declared package dependencies", func(t *testing.T) {
+		manifest := loadPackageManifest(t)
+		_, err := os.Stat("bun.lock")
+		if manifest.HasDependencies() {
+			require.NoError(t, err)
+			return
+		}
+		assert.True(t, os.IsNotExist(err), "bun.lock should not exist when package.json declares no dependencies")
+	})
+}
+
+type packageManifest struct {
+	Dependencies         map[string]string `json:"dependencies"`
+	DevDependencies      map[string]string `json:"devDependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	PeerDependencies     map[string]string `json:"peerDependencies"`
+}
+
+func (m packageManifest) HasDependencies() bool {
+	return len(m.Dependencies) > 0 ||
+		len(m.DevDependencies) > 0 ||
+		len(m.OptionalDependencies) > 0 ||
+		len(m.PeerDependencies) > 0
+}
+
+func loadPackageManifest(t *testing.T) packageManifest {
+	t.Helper()
+	data, err := os.ReadFile("package.json")
+	require.NoError(t, err)
+	var manifest packageManifest
+	require.NoError(t, json.Unmarshal(data, &manifest))
+	return manifest
 }
 
 func loadWorkflowRoot(t *testing.T, path string) *yaml.Node {
