@@ -82,6 +82,14 @@ func TestReleaseWorkflowConfig(t *testing.T) {
 		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_HEAD_REF").Value, "inputs.head_ref")
 		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_ISSUE_NUMBER").Value, "inputs.pr_number")
 	})
+
+	t.Run("Should publish releases from current-version body artifact", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Clean(".github/workflows/release.yml"))
+		require.NoError(t, err)
+		workflow := string(data)
+		assert.Contains(t, workflow, "--release-notes=RELEASE_BODY.md")
+		assert.NotContains(t, workflow, "--release-notes=RELEASE_NOTES.md")
+	})
 }
 
 func TestPackageManifestConfig(t *testing.T) {

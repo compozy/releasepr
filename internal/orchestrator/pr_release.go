@@ -289,8 +289,21 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 	if err := afero.WriteFile(o.fsRepo, "CHANGELOG.md", []byte(fullChangelog), FilePermissionsReadWrite); err != nil {
 		return nil, fmt.Errorf("failed to write changelog: %w", err)
 	}
+	previousReleaseNotes, err := readOptionalFile(o.fsRepo, ReleaseNotesOutputFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read existing release notes: %w", err)
+	}
 	releaseNotes := collection.RenderMarkdown()
-	releaseNotesDocument := buildReleaseNotesDocument(changelog, releaseNotes)
+	releaseBodyDocument := buildReleaseBodyDocument(changelog, releaseNotes)
+	releaseNotesDocument := buildHistoricalReleaseNotesDocument(version, releaseBodyDocument, previousReleaseNotes)
+	if err := afero.WriteFile(
+		o.fsRepo,
+		ReleaseBodyOutputFile,
+		[]byte(releaseBodyDocument),
+		FilePermissionsReadWrite,
+	); err != nil {
+		return nil, fmt.Errorf("failed to write release body: %w", err)
+	}
 	if err := afero.WriteFile(
 		o.fsRepo,
 		ReleaseNotesOutputFile,
@@ -315,6 +328,7 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 	// Add files
 	filesToAdd := []string{
 		"CHANGELOG.md",
+		ReleaseBodyOutputFile,
 		ReleaseNotesOutputFile,
 		"package.json",
 		"package-lock.json",
@@ -348,27 +362,80 @@ func (o *PRReleaseOrchestrator) archiveReleaseNotes(
 	return uc.Execute(ctx, version)
 }
 
-func buildReleaseNotesDocument(changelog, releaseNotes string) string {
-	versionHeading := releaseNotesVersionHeading(changelog)
+func readOptionalFile(fsRepo repository.FileSystemRepository, path string) (string, error) {
+	exists, err := afero.Exists(fsRepo, path)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", nil
+	}
+	data, err := afero.ReadFile(fsRepo, path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func buildReleaseBodyDocument(changelog, releaseNotes string) string {
+	trimmedChangelog := strings.TrimSpace(changelog)
 	trimmedReleaseNotes := strings.TrimSpace(releaseNotes)
 	switch {
-	case versionHeading == "":
+	case trimmedChangelog == "":
 		return trimmedReleaseNotes
 	case trimmedReleaseNotes == "":
-		return versionHeading
+		return trimmedChangelog
 	default:
-		return versionHeading + "\n\n" + trimmedReleaseNotes
+		return trimmedChangelog + "\n\n" + trimmedReleaseNotes
 	}
 }
 
-func releaseNotesVersionHeading(changelog string) string {
-	for _, line := range strings.Split(changelog, "\n") {
+func buildHistoricalReleaseNotesDocument(version, currentBody, previousDocument string) string {
+	current := strings.TrimSpace(currentBody)
+	previous := removeReleaseNotesVersionSection(previousDocument, version)
+	if current == "" {
+		return previous
+	}
+	if previous == "" {
+		return current
+	}
+	return current + "\n\n" + previous
+}
+
+func removeReleaseNotesVersionSection(document, version string) string {
+	targetVersion := normalizeReleaseVersion(version)
+	if targetVersion == "" {
+		return strings.TrimSpace(document)
+	}
+	lines := strings.Split(strings.ReplaceAll(document, "\r\n", "\n"), "\n")
+	result := make([]string, 0, len(lines))
+	skipping := false
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "## ") {
-			return trimmed
+			skipping = normalizeReleaseVersion(headingVersion(trimmed)) == targetVersion
+			if skipping {
+				continue
+			}
+		}
+		if !skipping {
+			result = append(result, line)
 		}
 	}
-	return ""
+	return strings.TrimSpace(strings.Join(result, "\n"))
+}
+
+func headingVersion(heading string) string {
+	heading = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(heading), "## "))
+	fields := strings.Fields(heading)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func normalizeReleaseVersion(version string) string {
+	return strings.TrimPrefix(strings.TrimSpace(version), "v")
 }
 
 func (o *PRReleaseOrchestrator) createPullRequest(
@@ -750,6 +817,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 					"package.json",
 					"package-lock.json",
 					"CHANGELOG.md",
+					ReleaseBodyOutputFile,
 					ReleaseNotesOutputFile,
 				},
 				"changelog":     artifacts.changelog,

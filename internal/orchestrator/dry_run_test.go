@@ -17,7 +17,7 @@ var goreleaserArgs = []string{
 	"--snapshot",
 	"--skip=publish",
 	"--clean",
-	"--release-notes=RELEASE_NOTES.md",
+	"--release-notes=RELEASE_BODY.md",
 	"--release-header-tmpl=.goreleaser.release-header.md.tmpl",
 	"--release-footer-tmpl=.goreleaser.release-footer.md.tmpl",
 }

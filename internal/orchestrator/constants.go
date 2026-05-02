@@ -67,8 +67,10 @@ const (
 	FilePermissionsSecure = 0600
 	// DirPermissionsDefault is the standard permission for created directories
 	DirPermissionsDefault = 0755
-	// ReleaseNotesOutputFile is the generated markdown consumed by GitHub Releases.
+	// ReleaseNotesOutputFile is the generated historical markdown committed to the repository.
 	ReleaseNotesOutputFile = "RELEASE_NOTES.md"
+	// ReleaseBodyOutputFile is the generated markdown consumed by GitHub Releases.
+	ReleaseBodyOutputFile = "RELEASE_BODY.md"
 	// ReleaseNotesGitKeepPath is the placeholder file that keeps `.release-notes/` in git.
 	ReleaseNotesGitKeepPath = ".release-notes/.gitkeep"
 )

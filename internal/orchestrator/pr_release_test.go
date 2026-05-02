@@ -17,7 +17,7 @@ import (
 )
 
 func TestPRReleaseOrchestrator_generateChangelog(t *testing.T) {
-	t.Run("Should write release notes from version heading and manual notes", func(t *testing.T) {
+	t.Run("Should write release body and preserve historical release notes", func(t *testing.T) {
 		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
@@ -26,6 +26,8 @@ func TestPRReleaseOrchestrator_generateChangelog(t *testing.T) {
 		npmSvc := new(mockNpmService)
 		scopedChangelog := "## v1.1.0\n\n### Features\n- Current release"
 		fullChangelog := "# Changelog\n\n" + scopedChangelog + "\n\n## v1.0.0\n\n### Features\n- Previous release"
+		previousReleaseNotes := "## v1.0.0\n\n### Features\n- Previous release"
+		require.NoError(t, afero.WriteFile(fsRepo, "RELEASE_NOTES.md", []byte(previousReleaseNotes), 0644))
 		require.NoError(t, fsRepo.MkdirAll(".release-notes", 0755))
 		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/manual.md", []byte(`---
 title: Manual upgrade guide
@@ -44,21 +46,26 @@ Only this release needs these notes.
 		changelogData, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
 		require.NoError(t, err)
 		assert.Equal(t, fullChangelog, string(changelogData))
+		releaseBodyData, err := afero.ReadFile(fsRepo, "RELEASE_BODY.md")
+		require.NoError(t, err)
+		releaseBodyDocument := string(releaseBodyData)
+		assert.Contains(t, releaseBodyDocument, scopedChangelog)
+		assert.Contains(t, releaseBodyDocument, "### Release Notes")
+		assert.Contains(t, releaseBodyDocument, "Only this release needs these notes.")
+		assert.NotContains(t, releaseBodyDocument, "## v1.0.0")
+		assert.NotContains(t, releaseBodyDocument, "Previous release")
 		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
 		require.NoError(t, err)
 		releaseNotesDocument := string(releaseNotesData)
-		assert.True(t, strings.HasPrefix(releaseNotesDocument, "## v1.1.0\n\n### Release Notes"))
+		assert.True(t, strings.HasPrefix(releaseNotesDocument, releaseBodyDocument+"\n\n## v1.0.0"))
 		assert.Contains(t, releaseNotesDocument, "### Release Notes")
 		assert.Contains(t, releaseNotesDocument, "Only this release needs these notes.")
+		assert.Contains(t, releaseNotesDocument, "Previous release")
 		assert.NotContains(t, releaseNotesDocument, "# Changelog")
-		assert.NotContains(t, releaseNotesDocument, "### Features")
-		assert.NotContains(t, releaseNotesDocument, "Current release")
-		assert.NotContains(t, releaseNotesDocument, "## v1.0.0")
-		assert.NotContains(t, releaseNotesDocument, "Previous release")
 		cliffSvc.AssertExpectations(t)
 	})
 
-	t.Run("Should write only version heading when manual notes are absent", func(t *testing.T) {
+	t.Run("Should use scoped changelog when manual notes are absent", func(t *testing.T) {
 		ctx := t.Context()
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
@@ -77,9 +84,38 @@ Only this release needs these notes.
 		changelogData, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
 		require.NoError(t, err)
 		assert.Equal(t, fullChangelog, string(changelogData))
+		releaseBodyData, err := afero.ReadFile(fsRepo, "RELEASE_BODY.md")
+		require.NoError(t, err)
+		assert.Equal(t, scopedChangelog, string(releaseBodyData))
 		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
 		require.NoError(t, err)
-		assert.Equal(t, "## v2.0.0", string(releaseNotesData))
+		assert.Equal(t, scopedChangelog, string(releaseNotesData))
+		cliffSvc.AssertExpectations(t)
+	})
+
+	t.Run("Should replace existing historical section for the same version", func(t *testing.T) {
+		ctx := t.Context()
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		scopedChangelog := "## v2.0.0\n\n### Fixes\n- Correct release notes"
+		fullChangelog := "# Changelog\n\n" + scopedChangelog
+		previousReleaseNotes := "## v2.0.0\n\n### Fixes\n- Old content\n\n## v1.0.0\n\n### Features\n- Previous release"
+		require.NoError(t, afero.WriteFile(fsRepo, "RELEASE_NOTES.md", []byte(previousReleaseNotes), 0644))
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v2.0.0", "release").Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		_, err := orch.generateChangelog(ctx, "v2.0.0")
+		require.NoError(t, err)
+		releaseNotesData, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
+		require.NoError(t, err)
+		releaseNotesDocument := string(releaseNotesData)
+		assert.Equal(t, 1, strings.Count(releaseNotesDocument, "## v2.0.0"))
+		assert.Contains(t, releaseNotesDocument, "- Correct release notes")
+		assert.Contains(t, releaseNotesDocument, "## v1.0.0")
+		assert.NotContains(t, releaseNotesDocument, "- Old content")
 		cliffSvc.AssertExpectations(t)
 	})
 }
@@ -123,6 +159,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 			Return(nil).
 			Once()
 		gitRepo.On("AddFiles", mock.Anything, "CHANGELOG.md").Return(nil).Once()
+		gitRepo.On("AddFiles", mock.Anything, "RELEASE_BODY.md").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "RELEASE_NOTES.md").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package-lock.json").Return(nil).Once()
@@ -165,7 +202,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		if releaseNotesExists {
 			data, err := afero.ReadFile(fsRepo, "RELEASE_NOTES.md")
 			require.NoError(t, err)
-			assert.Equal(t, "## v1.1.0", string(data))
+			assert.Equal(t, changelog, string(data))
 		}
 	})
 
@@ -198,7 +235,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranchForce", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On(
@@ -290,7 +327,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.0.1", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -438,7 +475,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -487,7 +524,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -575,7 +612,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v0.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -658,7 +695,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		// Fail on commit (use mock.Anything for context)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(errors.New("nothing to commit")).Once()
 
@@ -837,7 +874,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 			// May be called multiple times with retries
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -997,7 +1034,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(4)
+		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -1110,6 +1147,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 
 		gitRepo.On("ConfigureUser", ctx, expectedUser, expectedEmail).Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "CHANGELOG.md").Return(nil).Once()
+		gitRepo.On("AddFiles", ctx, "RELEASE_BODY.md").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "RELEASE_NOTES.md").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package-lock.json").Return(nil).Once()
@@ -1138,7 +1176,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		gitRepo.On("AddFiles", ctx, mock.Anything).Run(func(args mock.Arguments) {
 			pattern := args.Get(1).(string)
 			addedFiles = append(addedFiles, pattern)
-		}).Return(nil).Times(4)
+		}).Return(nil).Times(5)
 		gitRepo.On("Commit", ctx, mock.Anything).Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
@@ -1149,6 +1187,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		// Verify files were added in correct order
 		assert.Equal(t, []string{
 			"CHANGELOG.md",
+			"RELEASE_BODY.md",
 			"RELEASE_NOTES.md",
 			"package.json",
 			"package-lock.json",

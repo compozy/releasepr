@@ -8,7 +8,7 @@ The tool wraps the end-to-end release workflow:
 
 - Calculates the next semantic version based on commits since the last tag
 - Generates changelogs via `git-cliff`
-- Generates release notes from the version heading plus optional `.release-notes/*.md` content
+- Generates current release bodies and historical release notes from scoped changelogs plus optional `.release-notes/*.md` content
 - Creates or updates release branches and tags
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
@@ -157,13 +157,13 @@ The release workflow relies on additional secrets when running in CI:
 
 The repository ships with `ci.yml` for validation and `release.yml` for automated release pull requests, dry-run verification, and production releases. These workflows assume the same environment variables described above and do not embed repo-specific defaults.
 
-Production releases are published from `RELEASE_NOTES.md`. The release workflow wires GoReleaser with:
+Production releases are published from `RELEASE_BODY.md`. The release workflow wires GoReleaser with:
 
-- `--release-notes=RELEASE_NOTES.md`
+- `--release-notes=RELEASE_BODY.md`
 - `--release-header-tmpl=.goreleaser.release-header.md.tmpl`
 - `--release-footer-tmpl=.goreleaser.release-footer.md.tmpl`
 
-`RELEASE_NOTES.md` intentionally contains only the release version heading and custom release notes. Conventional commit groups remain in `CHANGELOG.md` and the release PR body.
+`RELEASE_BODY.md` contains only the current release section. `RELEASE_NOTES.md` is the committed historical document and prepends the current release while preserving older release sections.
 
 ---
 

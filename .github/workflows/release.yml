@@ -260,7 +260,7 @@ jobs:
           version: ~> v2
           args: >-
             release --clean
-            --release-notes=RELEASE_NOTES.md
+            --release-notes=RELEASE_BODY.md
             --release-header-tmpl=.goreleaser.release-header.md.tmpl
             --release-footer-tmpl=.goreleaser.release-footer.md.tmpl
         env:

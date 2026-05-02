@@ -182,7 +182,7 @@ func (o *DryRunOrchestrator) runGoReleaserDry(ctx context.Context) error {
 		"--snapshot",
 		"--skip=publish",
 		"--clean",
-		"--release-notes="+ReleaseNotesOutputFile,
+		"--release-notes="+ReleaseBodyOutputFile,
 		"--release-header-tmpl="+releaseHeaderTmplPath,
 		"--release-footer-tmpl="+releaseFooterTmplPath,
 	)
