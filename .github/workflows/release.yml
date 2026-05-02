@@ -94,6 +94,7 @@ jobs:
         run: go build -o bin/pr-release .
 
       - name: Run PR Release Orchestrator
+        id: pr_release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -101,19 +102,32 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           INITIAL_VERSION: ${{ env.INITIAL_VERSION }}
         run: |
+          set -euo pipefail
+
           if [[ "${{ github.event.inputs.force_release }}" == "true" ]]; then
             ./bin/pr-release pr-release --force --enable-rollback --ci-output
           else
             ./bin/pr-release pr-release --enable-rollback --ci-output
           fi
 
+          branch="$(git branch --show-current)"
+          if [[ "$branch" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "has_release_pr=true" >> "$GITHUB_OUTPUT"
+            echo "release_branch=$branch" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release PR branch produced; skipping release PR checks."
+            echo "has_release_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dispatch Release PR Checks
+        if: steps.pr_release.outputs.has_release_pr == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.pr_release.outputs.release_branch }}
         run: |
           set -euo pipefail
 
-          branch="$(git branch --show-current)"
+          branch="$RELEASE_BRANCH"
           if [[ ! "$branch" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "::error::Expected to be on a release branch after orchestration, got '$branch'"
             exit 1
