@@ -20,7 +20,7 @@ const defaultReleaseArtifactCommandTimeout = 10 * time.Minute
 
 type releaseArtifactCommandRunner func(
 	ctx context.Context,
-	command config.ReleaseArtifactCommand,
+	command *config.ReleaseArtifactCommand,
 	env map[string]string,
 ) error
 
@@ -32,7 +32,7 @@ type releaseArtifactResult struct {
 
 func defaultReleaseArtifactCommandRunner(
 	ctx context.Context,
-	command config.ReleaseArtifactCommand,
+	command *config.ReleaseArtifactCommand,
 	env map[string]string,
 ) error {
 	workingDirectory, err := releaseArtifactWorkingDirectory()
@@ -45,7 +45,10 @@ func defaultReleaseArtifactCommandRunner(
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(commandCtx, command.Command, command.Args...)
+	cmd, err := releaseArtifactExecCommand(commandCtx, command.Command, command.Args)
+	if err != nil {
+		return err
+	}
 	cmd.Dir = workingDirectory
 	cmd.Env = releaseArtifactProcessEnv(env)
 	var output bytes.Buffer
@@ -58,6 +61,32 @@ func defaultReleaseArtifactCommandRunner(
 		return fmt.Errorf("command failed: %w (output: %s)", err, strings.TrimSpace(output.String()))
 	}
 	return nil
+}
+
+func releaseArtifactExecCommand(ctx context.Context, command string, args []string) (*exec.Cmd, error) {
+	commandName, err := config.NormalizeReleaseArtifactCommand(command)
+	if err != nil {
+		return nil, err
+	}
+	switch commandName {
+	case "bun":
+		return exec.CommandContext(ctx, "bun", args...), nil
+	case "go":
+		return exec.CommandContext(ctx, "go", args...), nil
+	case "make":
+		return exec.CommandContext(ctx, "make", args...), nil
+	case "node":
+		return exec.CommandContext(ctx, "node", args...), nil
+	case "npm":
+		return exec.CommandContext(ctx, "npm", args...), nil
+	case "npx":
+		return exec.CommandContext(ctx, "npx", args...), nil
+	case "pnpm":
+		return exec.CommandContext(ctx, "pnpm", args...), nil
+	case "yarn":
+		return exec.CommandContext(ctx, "yarn", args...), nil
+	}
+	return nil, fmt.Errorf("unsupported release artifact command: %s", commandName)
 }
 
 func releaseArtifactWorkingDirectory() (string, error) {
@@ -107,7 +136,8 @@ func (o *PRReleaseOrchestrator) runReleaseArtifactCommands(
 		before[file] = struct{}{}
 	}
 	env := releaseArtifactEnvironment(cfg, version, branchName, previousTag)
-	for _, command := range cfg.ReleaseArtifacts {
+	for index := range cfg.ReleaseArtifacts {
+		command := &cfg.ReleaseArtifacts[index]
 		name := strings.TrimSpace(command.Name)
 		o.logger(ctx).Info("Running release artifact command", zap.String("name", name))
 		if err := o.artifactRunner(ctx, command, env); err != nil {

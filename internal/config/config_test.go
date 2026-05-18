@@ -101,4 +101,21 @@ func TestConfigValidateReleaseArtifacts(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "path cannot contain traversal")
 	})
+
+	t.Run("Should reject unsupported release artifact commands", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.GithubOwner = "compozy"
+		cfg.GithubRepo = "agh"
+		cfg.ReleaseArtifacts = []ReleaseArtifactCommand{
+			{
+				Name:    "site-changelog",
+				Command: "sh",
+				Add:     []string{"packages/site/content/blog/changelog/*.mdx"},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "command must be one of")
+	})
 }

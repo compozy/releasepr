@@ -38,6 +38,7 @@ var configFileCandidates = []string{".pr-release", ".compozy-release"}
 const (
 	minReleaseArtifactTimeoutSeconds = 1
 	maxReleaseArtifactTimeoutSeconds = 3600
+	releaseArtifactSupportedCommands = "bun, go, make, node, npm, npx, pnpm, yarn"
 )
 
 func DefaultConfig() *Config {
@@ -134,6 +135,9 @@ func validateReleaseArtifacts(commands []ReleaseArtifactCommand) error {
 		if strings.TrimSpace(command.Command) == "" {
 			return fmt.Errorf("%s.command cannot be empty", label)
 		}
+		if _, err := NormalizeReleaseArtifactCommand(command.Command); err != nil {
+			return fmt.Errorf("%s.command %w", label, err)
+		}
 		if len(command.Add) == 0 {
 			return fmt.Errorf("%s.add must include at least one path or glob", label)
 		}
@@ -157,6 +161,28 @@ func validateReleaseArtifacts(commands []ReleaseArtifactCommand) error {
 		}
 	}
 	return nil
+}
+
+func NormalizeReleaseArtifactCommand(command string) (string, error) {
+	switch strings.TrimSpace(command) {
+	case "bun":
+		return "bun", nil
+	case "go":
+		return "go", nil
+	case "make":
+		return "make", nil
+	case "node":
+		return "node", nil
+	case "npm":
+		return "npm", nil
+	case "npx":
+		return "npx", nil
+	case "pnpm":
+		return "pnpm", nil
+	case "yarn":
+		return "yarn", nil
+	}
+	return "", fmt.Errorf("must be one of: %s", releaseArtifactSupportedCommands)
 }
 
 func validateReleaseArtifactAddPattern(pattern string) error {

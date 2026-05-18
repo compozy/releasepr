@@ -161,7 +161,7 @@ func TestPRReleaseOrchestrator_releaseArtifactCommands(t *testing.T) {
 		var gotEnv map[string]string
 		orch.artifactRunner = func(
 			_ context.Context,
-			command config.ReleaseArtifactCommand,
+			command *config.ReleaseArtifactCommand,
 			env map[string]string,
 		) error {
 			assert.Equal(t, "site-changelog", command.Name)
@@ -242,7 +242,7 @@ func TestPRReleaseOrchestrator_ExecuteReleaseArtifacts(t *testing.T) {
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		orch.artifactRunner = func(
 			_ context.Context,
-			_ config.ReleaseArtifactCommand,
+			_ *config.ReleaseArtifactCommand,
 			_ map[string]string,
 		) error {
 			artifactRuns++
@@ -292,7 +292,7 @@ func TestPRReleaseOrchestrator_ExecuteReleaseArtifacts(t *testing.T) {
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		orch.artifactRunner = func(
 			_ context.Context,
-			_ config.ReleaseArtifactCommand,
+			_ *config.ReleaseArtifactCommand,
 			_ map[string]string,
 		) error {
 			return errors.New("generator failed")
