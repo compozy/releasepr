@@ -20,6 +20,18 @@
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "dd6f77b4698f1e67afc6e81aef8515e29f98f0b3d5487bb4940211a38140ce3b"
+    },
+    "skill-best-practices": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/skill-best-practices/SKILL.md",
+      "computedHash": "f906d43205c182eb633ff7df6ece6f83e8784de77f1b475f0b6c3084a5ed4d06"
+    },
+    "skill-load-tips": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/skill-load-tips/SKILL.md",
+      "computedHash": "07ebde30e4b4ae598ac600989de729a470f1b71769847cb4152e596d7535a2bc"
     }
   }
 }

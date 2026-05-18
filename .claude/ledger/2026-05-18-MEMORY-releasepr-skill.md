@@ -1,0 +1,9 @@
+- Goal: Create official distributable skill at `skills/releasepr/` (top-level) so consumer projects' agents can set up/run/troubleshoot pr-release. Authored per skill-best-practices + skill-load-tips.
+- Constraints/Assumptions: Audience = consumers (not contributors). Bundle = references + assets templates + read-only scripts/check-setup.sh. No existing repo files modified. SKILL.md frontmatter matches repo convention (name/description/license/metadata).
+- Key decisions: Validated metadata name=releasepr (validate-metadata.py SUCCESS). Source-accurate from internal/config/config.go, cmd/*.go, .github/workflows/release.yml, README.md.
+- State: Complete. Skill authored + verified.
+- Done: SKILL.md dispatcher, 6 references, 2 asset templates, read-only check-setup.sh. Metadata validated (SUCCESS). Script passes bash -n, runs clean from repo root (4 PASS/2 WARN/0 FAIL) and fails cleanly in empty dir (exit 1). All references >100 lines have Contents TOC.
+- Now: Done. Enhanced from real consumer usage (agh/kb/skeeper/compozy-v0): go run + pinned PR_RELEASE_MODULE as primary install, --force as standard idempotent CI flag, RELEASE_TOKEN+permissions rationale, INITIAL_VERSION (calculate_version.go), fetch-depth:0/fetch-tags hard req, git-cliff runtime dep, release_artifacts injected PR_RELEASE_* env vars (release_artifacts.go), pr-release does NOT tag. Workflow template rewritten to go run. All re-verified (YAML valid via ruby, check-setup exit 0, TOCs present, SKILL.md 132 lines).
+- Next: User review; optionally commit (not yet requested).
+- Open questions: none.
+- Working set: skills/releasepr/{SKILL.md,references/*,assets/*,scripts/check-setup.sh}; plan at ~/.claude/plans/vamos-criar-uma-skill-velvet-moore.md

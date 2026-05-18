@@ -13,6 +13,19 @@ The tool wraps the end-to-end release workflow:
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
 
+## Agent Skill
+
+This repository ships an official agent skill at [`skills/releasepr`](skills/releasepr)
+that teaches AI coding agents how to set up, run, and troubleshoot pr-release
+in a consuming project.
+
+Install it into your agent skills directory with the
+[`skills`](https://www.npmjs.com/package/skills) CLI:
+
+```bash
+npx skills add https://github.com/compozy/releasepr --skill releasepr
+```
+
 ## Configuration
 
 Configuration is optional for common CI environments. The loader resolves settings in the following order:
