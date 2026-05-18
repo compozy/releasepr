@@ -2,10 +2,12 @@ package orchestrator
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/compozy/releasepr/internal/config"
 	"github.com/compozy/releasepr/internal/domain"
 	"github.com/compozy/releasepr/internal/logger"
 	"github.com/spf13/afero"
@@ -16,9 +18,26 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func testReleaseContext(t *testing.T) context.Context {
+	t.Helper()
+	return testReleaseContextWithConfig(t, testReleaseConfig())
+}
+
+func testReleaseContextWithConfig(t *testing.T, cfg *config.Config) context.Context {
+	t.Helper()
+	return config.IntoContext(t.Context(), cfg)
+}
+
+func testReleaseConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.GithubOwner = "compozy"
+	cfg.GithubRepo = "releasepr"
+	return cfg
+}
+
 func TestPRReleaseOrchestrator_generateChangelog(t *testing.T) {
 	t.Run("Should write release body and preserve historical release notes", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -66,7 +85,7 @@ Only this release needs these notes.
 	})
 
 	t.Run("Should use scoped changelog when manual notes are absent", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -94,7 +113,7 @@ Only this release needs these notes.
 	})
 
 	t.Run("Should replace existing historical section for the same version", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -120,9 +139,178 @@ Only this release needs these notes.
 	})
 }
 
+func TestPRReleaseOrchestrator_releaseArtifactCommands(t *testing.T) {
+	t.Run("Should run configured artifact command with release environment", func(t *testing.T) {
+		cfg := testReleaseConfig()
+		cfg.ReleaseArtifacts = []config.ReleaseArtifactCommand{
+			{
+				Name:    "site-changelog",
+				Command: "bun",
+				Args:    []string{"run", "release:site-changelog"},
+				Add:     []string{"packages/site/content/blog/changelog/*.mdx"},
+			},
+		}
+		ctx := testReleaseContextWithConfig(t, cfg)
+		fsRepo := afero.NewMemMapFs()
+		require.NoError(t, fsRepo.MkdirAll("packages/site/content/blog/changelog", 0755))
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		var gotEnv map[string]string
+		orch.artifactRunner = func(
+			_ context.Context,
+			command config.ReleaseArtifactCommand,
+			env map[string]string,
+		) error {
+			assert.Equal(t, "site-changelog", command.Name)
+			assert.Equal(t, []string{"run", "release:site-changelog"}, command.Args)
+			gotEnv = env
+			return afero.WriteFile(
+				fsRepo,
+				"packages/site/content/blog/changelog/v1.2.3.mdx",
+				[]byte("---\nversion: \"v1.2.3\"\n---\n"),
+				0644,
+			)
+		}
+
+		result, err := orch.runReleaseArtifactCommands(ctx, "v1.2.3", "release/v1.2.3", "v1.2.2")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"packages/site/content/blog/changelog/*.mdx"}, result.addPatterns)
+		assert.Empty(t, result.modifiedFiles)
+		assert.Equal(t, []string{"packages/site/content/blog/changelog/v1.2.3.mdx"}, result.createdFiles)
+		assert.Equal(t, "v1.2.3", gotEnv["PR_RELEASE_VERSION"])
+		assert.Equal(t, "1.2.3", gotEnv["PR_RELEASE_VERSION_NUMBER"])
+		assert.Equal(t, "release/v1.2.3", gotEnv["PR_RELEASE_BRANCH"])
+		assert.Equal(t, "v1.2.2", gotEnv["PR_RELEASE_PREVIOUS_TAG"])
+		assert.Equal(t, "CHANGELOG.md", gotEnv["PR_RELEASE_CHANGELOG_PATH"])
+		assert.Equal(t, "RELEASE_BODY.md", gotEnv["PR_RELEASE_BODY_PATH"])
+		assert.Equal(t, "RELEASE_NOTES.md", gotEnv["PR_RELEASE_NOTES_PATH"])
+		assert.NotEmpty(t, gotEnv["PR_RELEASE_DATE"])
+	})
+
+	t.Run("Should remove newly generated artifact files during rollback", func(t *testing.T) {
+		ctx := testReleaseContext(t)
+		fsRepo := afero.NewMemMapFs()
+		path := "packages/site/content/blog/changelog/v1.2.3.mdx"
+		require.NoError(t, fsRepo.MkdirAll("packages/site/content/blog/changelog", 0755))
+		require.NoError(t, afero.WriteFile(fsRepo, path, []byte("generated"), 0644))
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		compensator := NewCompensatingActions(gitRepo, githubRepo, fsRepo)
+
+		err := compensator.RestoreFiles(ctx, map[string]any{"created_files": []string{path}})
+
+		require.NoError(t, err)
+		exists, existsErr := afero.Exists(fsRepo, path)
+		require.NoError(t, existsErr)
+		assert.False(t, exists)
+	})
+}
+
+func TestPRReleaseOrchestrator_ExecuteReleaseArtifacts(t *testing.T) {
+	t.Run("Should run release artifacts during dry-run without committing", func(t *testing.T) {
+		cfg := testReleaseConfig()
+		cfg.ReleaseArtifacts = []config.ReleaseArtifactCommand{
+			{
+				Name:    "site-changelog",
+				Command: "bun",
+				Add:     []string{"packages/site/content/blog/changelog/*.mdx"},
+			},
+		}
+		ctx := testReleaseContextWithConfig(t, cfg)
+		fsRepo := afero.NewMemMapFs()
+		require.NoError(t, fsRepo.MkdirAll("packages/site/content/blog/changelog", 0755))
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		t.Setenv("GITHUB_TOKEN", "test-token")
+		gitRepo.On("LatestTag", mock.Anything).Return("v1.2.2", nil).Times(2)
+		gitRepo.On("CommitsSinceTag", mock.Anything, "v1.2.2").Return(1, nil).Once()
+		nextVersion, err := domain.NewVersion("v1.2.3")
+		require.NoError(t, err)
+		cliffSvc.On("CalculateNextVersion", mock.Anything, "v1.2.2").Return(nextVersion, nil).Times(2)
+		gitRepo.On("CreateBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
+		gitRepo.On("CheckoutBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
+		changelog := "## v1.2.3\n\n### Features\n- Generate site changelog"
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.2.3", "release").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.2.3").Return("# Changelog\n\n"+changelog, nil).Once()
+		artifactRuns := 0
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		orch.artifactRunner = func(
+			_ context.Context,
+			_ config.ReleaseArtifactCommand,
+			_ map[string]string,
+		) error {
+			artifactRuns++
+			return afero.WriteFile(
+				fsRepo,
+				"packages/site/content/blog/changelog/v1.2.3.mdx",
+				[]byte("generated"),
+				0644,
+			)
+		}
+
+		err = orch.Execute(ctx, PRReleaseConfig{DryRun: true})
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, artifactRuns)
+		gitRepo.AssertExpectations(t)
+		githubRepo.AssertExpectations(t)
+		cliffSvc.AssertExpectations(t)
+	})
+
+	t.Run("Should stop the workflow when a release artifact command fails", func(t *testing.T) {
+		cfg := testReleaseConfig()
+		cfg.ReleaseArtifacts = []config.ReleaseArtifactCommand{
+			{
+				Name:    "site-changelog",
+				Command: "bun",
+				Add:     []string{"packages/site/content/blog/changelog/*.mdx"},
+			},
+		}
+		ctx := testReleaseContextWithConfig(t, cfg)
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+		t.Setenv("GITHUB_TOKEN", "test-token")
+		gitRepo.On("LatestTag", mock.Anything).Return("v1.2.2", nil).Times(2)
+		gitRepo.On("CommitsSinceTag", mock.Anything, "v1.2.2").Return(1, nil).Once()
+		nextVersion, err := domain.NewVersion("v1.2.3")
+		require.NoError(t, err)
+		cliffSvc.On("CalculateNextVersion", mock.Anything, "v1.2.2").Return(nextVersion, nil).Times(2)
+		gitRepo.On("CreateBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
+		gitRepo.On("CheckoutBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
+		changelog := "## v1.2.3\n\n### Features\n- Generate site changelog"
+		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.2.3", "release").Return(changelog, nil).Once()
+		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.2.3").Return("# Changelog\n\n"+changelog, nil).Once()
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+		orch.artifactRunner = func(
+			_ context.Context,
+			_ config.ReleaseArtifactCommand,
+			_ map[string]string,
+		) error {
+			return errors.New("generator failed")
+		}
+
+		err = orch.Execute(ctx, PRReleaseConfig{})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "release artifact \"site-changelog\" failed")
+		gitRepo.AssertExpectations(t)
+		githubRepo.AssertExpectations(t)
+		cliffSvc.AssertExpectations(t)
+	})
+}
+
 func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	t.Run("Should successfully create a new release PR when changes exist", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -207,7 +395,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should force push when release branch already exists remotely", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -266,7 +454,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should skip PR creation when no changes exist and force flag is false", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -298,7 +486,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should force PR creation when force flag is set despite no changes", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -352,7 +540,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error when GITHUB_TOKEN is missing", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -376,7 +564,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in version calculation", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -407,7 +595,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in changelog generation", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -449,7 +637,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle error in PR creation", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -498,7 +686,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should skip PR creation when SkipPR flag is set", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -542,7 +730,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should output CI format when CIOutput flag is set", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -584,7 +772,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle initial release when no tags exist", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -633,7 +821,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	// NOTE: tools/ update tests removed (tools updates are no longer part of the pipeline)
 
 	t.Run("Should handle error when creating release branch fails", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -667,7 +855,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should handle commit errors gracefully", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -712,7 +900,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 	})
 
 	t.Run("Should validate version format correctly", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -748,7 +936,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	t.Run("Should rollback branch creation when changelog generation fails", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -833,7 +1021,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	})
 
 	t.Run("Should rollback all completed steps when PR creation fails", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -935,7 +1123,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 	})
 
 	t.Run("Should handle rollback failure gracefully", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1007,7 +1195,7 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 
 func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 	t.Run("Should not save state when rollback is disabled", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1056,7 +1244,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 	})
 
 	t.Run("Should not perform rollback when disabled even on failure", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1100,7 +1288,7 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 
 func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 	t.Run("Should validate branch name format", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1135,7 +1323,7 @@ func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 
 func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 	t.Run("Should configure git user correctly", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1156,14 +1344,14 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 
-		err := orch.commitChanges(ctx, "v1.2.0")
+		err := orch.commitChanges(ctx, "v1.2.0", nil)
 		require.NoError(t, err)
 
 		gitRepo.AssertExpectations(t)
 	})
 
 	t.Run("Should add all required files in correct order", func(t *testing.T) {
-		ctx := t.Context()
+		ctx := testReleaseContext(t)
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
@@ -1181,7 +1369,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 
-		err := orch.commitChanges(ctx, "v1.2.0")
+		err := orch.commitChanges(ctx, "v1.2.0", nil)
 		require.NoError(t, err)
 
 		// Verify files were added in correct order
@@ -1192,6 +1380,43 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 			"package.json",
 			"package-lock.json",
 			// tools removed
+		}, addedFiles)
+
+		gitRepo.AssertExpectations(t)
+	})
+
+	t.Run("Should stage configured release artifact paths after core release files", func(t *testing.T) {
+		ctx := testReleaseContext(t)
+		fsRepo := afero.NewMemMapFs()
+		gitRepo := new(mockGitExtendedRepository)
+		githubRepo := new(mockGithubExtendedRepository)
+		cliffSvc := new(mockCliffService)
+		npmSvc := new(mockNpmService)
+
+		var addedFiles []string
+		gitRepo.On("ConfigureUser", ctx, mock.Anything, mock.Anything).Return(nil).Once()
+		gitRepo.On("AddFiles", ctx, mock.Anything).Run(func(args mock.Arguments) {
+			pattern := args.Get(1).(string)
+			addedFiles = append(addedFiles, pattern)
+		}).Return(nil).Times(6)
+		gitRepo.On("Commit", ctx, mock.Anything).Return(nil).Once()
+
+		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
+
+		err := orch.commitChanges(
+			ctx,
+			"v1.2.0",
+			[]string{"packages/site/content/blog/changelog/*.mdx"},
+		)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{
+			"CHANGELOG.md",
+			"RELEASE_BODY.md",
+			"RELEASE_NOTES.md",
+			"package.json",
+			"package-lock.json",
+			"packages/site/content/blog/changelog/*.mdx",
 		}, addedFiles)
 
 		gitRepo.AssertExpectations(t)

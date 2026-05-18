@@ -32,12 +32,13 @@ type PRReleaseConfig struct {
 
 // PRReleaseOrchestrator orchestrates the entire PR release workflow.
 type PRReleaseOrchestrator struct {
-	gitRepo    repository.GitExtendedRepository
-	githubRepo repository.GithubExtendedRepository
-	fsRepo     repository.FileSystemRepository
-	cliffSvc   service.CliffService
-	npmSvc     service.NpmService
-	stateRepo  repository.StateRepository
+	gitRepo        repository.GitExtendedRepository
+	githubRepo     repository.GithubExtendedRepository
+	fsRepo         repository.FileSystemRepository
+	cliffSvc       service.CliffService
+	npmSvc         service.NpmService
+	stateRepo      repository.StateRepository
+	artifactRunner releaseArtifactCommandRunner
 }
 
 type releaseArtifacts struct {
@@ -56,12 +57,13 @@ func NewPRReleaseOrchestrator(
 	// Initialize state repository for rollback support
 	stateRepo := repository.NewJSONStateRepository(fsRepo, ".release-state")
 	return &PRReleaseOrchestrator{
-		gitRepo:    gitRepo,
-		githubRepo: githubRepo,
-		fsRepo:     fsRepo,
-		cliffSvc:   cliffSvc,
-		npmSvc:     npmSvc,
-		stateRepo:  stateRepo,
+		gitRepo:        gitRepo,
+		githubRepo:     githubRepo,
+		fsRepo:         fsRepo,
+		cliffSvc:       cliffSvc,
+		npmSvc:         npmSvc,
+		stateRepo:      stateRepo,
+		artifactRunner: defaultReleaseArtifactCommandRunner,
 	}
 }
 
@@ -126,7 +128,7 @@ func (o *PRReleaseOrchestrator) executeLegacy(ctx context.Context, cfg PRRelease
 		return err
 	}
 	// Step 3: Update code and create PR
-	return o.updateAndCreatePR(ctx, version, branchName, cfg)
+	return o.updateAndCreatePR(ctx, version, branchName, latestTag, cfg)
 }
 
 // prepareRelease calculates version and creates the release branch
@@ -161,7 +163,7 @@ func (o *PRReleaseOrchestrator) prepareRelease(
 // updateAndCreatePR updates versions, changelog and creates the PR
 func (o *PRReleaseOrchestrator) updateAndCreatePR(
 	ctx context.Context,
-	version, branchName string,
+	version, branchName, latestTag string,
 	cfg PRReleaseConfig,
 ) error {
 	if err := o.updatePackageVersions(ctx, version); err != nil {
@@ -171,6 +173,10 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 	artifacts, err := o.generateChangelog(ctx, version)
 	if err != nil {
 		return fmt.Errorf("failed to generate changelog: %w", err)
+	}
+	artifactResult, err := o.runReleaseArtifactCommands(ctx, version, branchName, latestTag)
+	if err != nil {
+		return err
 	}
 
 	// Dry-run: stop here so no commit, push or PR is made.
@@ -183,7 +189,7 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 		return fmt.Errorf("failed to archive release notes: %w", err)
 	}
 
-	if err := o.commitChanges(ctx, version); err != nil {
+	if err := o.commitChanges(ctx, version, artifactResult.addPatterns); err != nil {
 		return fmt.Errorf("failed to commit changes: %w", err)
 	}
 	if err := o.gitRepo.PushBranch(ctx, branchName); err != nil {
@@ -318,7 +324,7 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 	}, nil
 }
 
-func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version string) error {
+func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version string, extraAddPatterns []string) error {
 	// Configure git
 	user := "github-actions[bot]"
 	email := "github-actions[bot]@users.noreply.github.com"
@@ -340,6 +346,7 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 	if gitKeepExists {
 		filesToAdd = append(filesToAdd, ReleaseNotesGitKeepPath)
 	}
+	filesToAdd = appendUniqueReleaseFiles(filesToAdd, extraAddPatterns)
 	for _, pattern := range filesToAdd {
 		// Use git add with pattern, ignore errors for missing files
 		if err := o.gitRepo.AddFiles(ctx, pattern); err != nil {
@@ -543,18 +550,19 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 
 // workflowContext holds shared state for workflow execution
 type workflowContext struct {
-	version                string
-	branchName             string
-	hasChanges             bool
-	latestTag              string
-	prNumber               int
-	createdInSession       bool
-	localCreatedInSession  bool
-	remoteCreatedInSession bool
-	remoteExisted          bool
-	changelog              string
-	releaseNotes           string
-	originalBranch         string
+	version                    string
+	branchName                 string
+	hasChanges                 bool
+	latestTag                  string
+	prNumber                   int
+	createdInSession           bool
+	localCreatedInSession      bool
+	remoteCreatedInSession     bool
+	remoteExisted              bool
+	changelog                  string
+	releaseNotes               string
+	originalBranch             string
+	releaseArtifactAddPatterns []string
 }
 
 // Workflow step methods
@@ -809,19 +817,27 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			if err := g.Wait(); err != nil {
 				return nil, err
 			}
+			artifactResult, err := o.runReleaseArtifactCommands(ctx, wctx.version, wctx.branchName, wctx.latestTag)
+			if err != nil {
+				return nil, err
+			}
 			wctx.changelog = artifacts.changelog
 			wctx.releaseNotes = artifacts.releaseNotes
+			wctx.releaseArtifactAddPatterns = artifactResult.addPatterns
 			o.logger(ctx).Info("Release artifacts prepared successfully", zap.String("version", wctx.version))
+			modifiedFiles := []string{
+				"package.json",
+				"package-lock.json",
+				"CHANGELOG.md",
+				ReleaseBodyOutputFile,
+				ReleaseNotesOutputFile,
+			}
+			modifiedFiles = append(modifiedFiles, artifactResult.modifiedFiles...)
 			return map[string]any{
-				"modified_files": []string{
-					"package.json",
-					"package-lock.json",
-					"CHANGELOG.md",
-					ReleaseBodyOutputFile,
-					ReleaseNotesOutputFile,
-				},
-				"changelog":     artifacts.changelog,
-				"release_notes": artifacts.releaseNotes,
+				"modified_files": modifiedFiles,
+				"created_files":  artifactResult.createdFiles,
+				"changelog":      artifacts.changelog,
+				"release_notes":  artifacts.releaseNotes,
 			}, nil
 		},
 		Compensate: compensator.RestoreFiles,
@@ -867,7 +883,7 @@ func (o *PRReleaseOrchestrator) addCommitChangesStep(
 				return map[string]any{"skip": true}, nil
 			}
 			o.logger(ctx).Info("Committing changes", zap.String("version", wctx.version))
-			if err := o.commitChanges(ctx, wctx.version); err != nil {
+			if err := o.commitChanges(ctx, wctx.version, wctx.releaseArtifactAddPatterns); err != nil {
 				o.logger(ctx).Error("Failed to commit changes", zap.Error(err))
 				return nil, fmt.Errorf("failed to commit changes: %w", err)
 			}
@@ -878,6 +894,26 @@ func (o *PRReleaseOrchestrator) addCommitChangesStep(
 		},
 		Compensate: compensator.ResetCommit,
 	})
+}
+
+func appendUniqueReleaseFiles(files []string, extra []string) []string {
+	seen := make(map[string]struct{}, len(files)+len(extra))
+	result := make([]string, 0, len(files)+len(extra))
+	for _, file := range files {
+		if _, ok := seen[file]; ok {
+			continue
+		}
+		seen[file] = struct{}{}
+		result = append(result, file)
+	}
+	for _, file := range extra {
+		if _, ok := seen[file]; ok {
+			continue
+		}
+		seen[file] = struct{}{}
+		result = append(result, file)
+	}
+	return result
 }
 
 func (o *PRReleaseOrchestrator) addPushBranchStep(

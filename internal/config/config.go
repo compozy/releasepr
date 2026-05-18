@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -13,17 +14,31 @@ import (
 )
 
 type Config struct {
-	GithubToken           string `mapstructure:"github_token"`
-	GithubOwner           string `mapstructure:"github_owner"`
-	GithubRepo            string `mapstructure:"github_repo"`
-	ToolsDir              string `mapstructure:"tools_dir"`
-	NpmToken              string `mapstructure:"npm_token"`
-	LogLevel              string `mapstructure:"log_level"`
-	LogFormat             string `mapstructure:"log_format"`
-	GitPushTimeoutMinutes int    `mapstructure:"git_push_timeout_minutes"`
+	GithubToken           string                   `mapstructure:"github_token"`
+	GithubOwner           string                   `mapstructure:"github_owner"`
+	GithubRepo            string                   `mapstructure:"github_repo"`
+	ToolsDir              string                   `mapstructure:"tools_dir"`
+	NpmToken              string                   `mapstructure:"npm_token"`
+	LogLevel              string                   `mapstructure:"log_level"`
+	LogFormat             string                   `mapstructure:"log_format"`
+	GitPushTimeoutMinutes int                      `mapstructure:"git_push_timeout_minutes"`
+	ReleaseArtifacts      []ReleaseArtifactCommand `mapstructure:"release_artifacts"`
+}
+
+type ReleaseArtifactCommand struct {
+	Name           string   `mapstructure:"name"`
+	Command        string   `mapstructure:"command"`
+	Args           []string `mapstructure:"args"`
+	Add            []string `mapstructure:"add"`
+	TimeoutSeconds int      `mapstructure:"timeout_seconds"`
 }
 
 var configFileCandidates = []string{".pr-release", ".compozy-release"}
+
+const (
+	minReleaseArtifactTimeoutSeconds = 1
+	maxReleaseArtifactTimeoutSeconds = 3600
+)
 
 func DefaultConfig() *Config {
 	logFormat := "json"
@@ -84,6 +99,9 @@ func (c *Config) Validate() error {
 	if c.GitPushTimeoutMinutes < 1 || c.GitPushTimeoutMinutes > 30 {
 		return fmt.Errorf("git_push_timeout_minutes must be between 1 and 30, got %d", c.GitPushTimeoutMinutes)
 	}
+	if err := validateReleaseArtifacts(c.ReleaseArtifacts); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -105,6 +123,56 @@ func validateLogFormat(format string) error {
 		return nil
 	}
 	return fmt.Errorf("invalid log_format: %s", format)
+}
+
+func validateReleaseArtifacts(commands []ReleaseArtifactCommand) error {
+	for index, command := range commands {
+		label := fmt.Sprintf("release_artifacts[%d]", index)
+		if strings.TrimSpace(command.Name) == "" {
+			return fmt.Errorf("%s.name cannot be empty", label)
+		}
+		if strings.TrimSpace(command.Command) == "" {
+			return fmt.Errorf("%s.command cannot be empty", label)
+		}
+		if len(command.Add) == 0 {
+			return fmt.Errorf("%s.add must include at least one path or glob", label)
+		}
+		for addIndex, pattern := range command.Add {
+			if err := validateReleaseArtifactAddPattern(pattern); err != nil {
+				return fmt.Errorf("%s.add[%d]: %w", label, addIndex, err)
+			}
+		}
+		if command.TimeoutSeconds == 0 {
+			continue
+		}
+		if command.TimeoutSeconds < minReleaseArtifactTimeoutSeconds ||
+			command.TimeoutSeconds > maxReleaseArtifactTimeoutSeconds {
+			return fmt.Errorf(
+				"%s.timeout_seconds must be between %d and %d, got %d",
+				label,
+				minReleaseArtifactTimeoutSeconds,
+				maxReleaseArtifactTimeoutSeconds,
+				command.TimeoutSeconds,
+			)
+		}
+	}
+	return nil
+}
+
+func validateReleaseArtifactAddPattern(pattern string) error {
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	if filepath.IsAbs(trimmed) {
+		return fmt.Errorf("path must be repository-relative")
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(trimmed), "/") {
+		if segment == ".." {
+			return fmt.Errorf("path cannot contain traversal")
+		}
+	}
+	return nil
 }
 
 // ValidateForGitHubOperations validates that GitHub token is present for operations that require it.

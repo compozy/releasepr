@@ -177,21 +177,27 @@ func (ca *CompensatingActions) deleteRemoteBranchIfPushed(
 // RestoreFiles idempotently restores modified files to their original state
 func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData map[string]any) error {
 	log := ca.logger(ctx)
-	modifiedFiles, ok := rollbackData["modified_files"].([]string)
-	if !ok {
-		// Try interface{} slice (JSON unmarshaling)
-		if filesInterface, ok := rollbackData["modified_files"].([]any); ok {
-			modifiedFiles = make([]string, len(filesInterface))
-			for i, f := range filesInterface {
-				if str, ok := f.(string); ok {
-					modifiedFiles[i] = str
-				}
-			}
-		} else {
-			return nil // No files to restore
+	for _, file := range rollbackStringSlice(rollbackData, "created_files") {
+		if file == "" {
+			continue
 		}
+		exists, err := afero.Exists(ca.fsRepo, file)
+		if err != nil {
+			return fmt.Errorf("failed to inspect generated file %s: %w", file, err)
+		}
+		if !exists {
+			continue
+		}
+		if err := ca.fsRepo.Remove(file); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove generated file %s: %w", file, err)
+		}
+		log.Info("Removed generated file", zap.String("file", file))
 	}
+	modifiedFiles := rollbackStringSlice(rollbackData, "modified_files")
 	for _, file := range modifiedFiles {
+		if file == "" {
+			continue
+		}
 		// Check if file has uncommitted changes
 		if ca.fileHasChanges(ctx, file) {
 			if err := ca.gitRepo.RestoreFile(ctx, file); err != nil {
@@ -202,6 +208,23 @@ func (ca *CompensatingActions) RestoreFiles(ctx context.Context, rollbackData ma
 		}
 	}
 	return nil
+}
+
+func rollbackStringSlice(rollbackData map[string]any, key string) []string {
+	if values, ok := rollbackData[key].([]string); ok {
+		return values
+	}
+	valuesInterface, ok := rollbackData[key].([]any)
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(valuesInterface))
+	for _, value := range valuesInterface {
+		if text, ok := value.(string); ok {
+			values = append(values, text)
+		}
+	}
+	return values
 }
 
 // RestoreArchivedReleaseNotes moves archived release-note files back to their original paths.

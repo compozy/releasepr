@@ -65,3 +65,40 @@ func TestParseGitRemoteURL(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigValidateReleaseArtifacts(t *testing.T) {
+	t.Run("Should accept configured release artifact commands", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.GithubOwner = "compozy"
+		cfg.GithubRepo = "agh"
+		cfg.ReleaseArtifacts = []ReleaseArtifactCommand{
+			{
+				Name:           "site-changelog",
+				Command:        "bun",
+				Args:           []string{"run", "release:site-changelog"},
+				Add:            []string{"packages/site/content/blog/changelog/*.mdx"},
+				TimeoutSeconds: 120,
+			},
+		}
+
+		err := cfg.Validate()
+		require.NoError(t, err)
+	})
+
+	t.Run("Should reject unsafe artifact add paths", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.GithubOwner = "compozy"
+		cfg.GithubRepo = "agh"
+		cfg.ReleaseArtifacts = []ReleaseArtifactCommand{
+			{
+				Name:    "site-changelog",
+				Command: "bun",
+				Add:     []string{"../outside/*.mdx"},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "path cannot contain traversal")
+	})
+}
