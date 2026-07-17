@@ -649,11 +649,10 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 				return nil, err
 			}
 			if cfg.ForceRelease {
-				branchExists, remoteExists, err = o.forceDeleteBranch(
+				branchExists, err = o.refreshLocalBranch(
 					ctx,
 					branchName,
 					branchExists,
-					remoteExists,
 					originalBranch,
 				)
 				if err != nil {
@@ -719,42 +718,24 @@ func (o *PRReleaseOrchestrator) checkBranchExistence(ctx context.Context, branch
 	return branchExists, remoteExists, nil
 }
 
-func (o *PRReleaseOrchestrator) forceDeleteBranch(
+func (o *PRReleaseOrchestrator) refreshLocalBranch(
 	ctx context.Context,
 	branchName string,
-	branchExists, remoteExists bool,
+	branchExists bool,
 	originalBranch string,
-) (bool, bool, error) {
-	if !branchExists && !remoteExists {
-		return branchExists, remoteExists, nil
+) (bool, error) {
+	if !branchExists {
+		return false, nil
 	}
-	o.logger(ctx).Info("Force flag set, deleting existing branch",
-		zap.String("branch", branchName),
-		zap.Bool("local_exists", branchExists),
-		zap.Bool("remote_exists", remoteExists))
-	if branchExists {
-		if err := o.gitRepo.CheckoutBranch(ctx, originalBranch); err != nil {
-			return branchExists, remoteExists, fmt.Errorf(
-				"failed to checkout original branch %s: %w",
-				originalBranch,
-				err,
-			)
-		}
-		if err := o.gitRepo.DeleteBranch(ctx, branchName); err != nil {
-			return branchExists, remoteExists, fmt.Errorf("failed to delete local branch %s: %w", branchName, err)
-		}
-		o.logger(ctx).Info("Deleted local branch", zap.String("branch", branchName))
+	o.logger(ctx).Info("Force flag set, refreshing local branch", zap.String("branch", branchName))
+	if err := o.gitRepo.CheckoutBranch(ctx, originalBranch); err != nil {
+		return branchExists, fmt.Errorf("failed to checkout original branch %s: %w", originalBranch, err)
 	}
-	if remoteExists {
-		if err := o.gitRepo.DeleteRemoteBranch(ctx, branchName); err != nil {
-			o.logger(ctx).Warn("Failed to delete remote branch, will force push",
-				zap.String("branch", branchName),
-				zap.Error(err))
-		} else {
-			o.logger(ctx).Info("Deleted remote branch", zap.String("branch", branchName))
-		}
+	if err := o.gitRepo.DeleteBranch(ctx, branchName); err != nil {
+		return branchExists, fmt.Errorf("failed to delete local branch %s: %w", branchName, err)
 	}
-	return false, false, nil
+	o.logger(ctx).Info("Deleted local branch", zap.String("branch", branchName))
+	return false, nil
 }
 
 func (o *PRReleaseOrchestrator) logBranchStatus(

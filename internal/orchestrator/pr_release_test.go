@@ -412,8 +412,10 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		cliffSvc.On("CalculateNextVersion", mock.Anything, "v1.0.0").Return(nextVersion, nil).Times(2)
 
 		branchName := "release/v1.1.0"
-		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main"}, nil).Once()
+		gitRepo.On("ListLocalBranches", mock.Anything).Return([]string{"main", branchName}, nil).Once()
 		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).Return(true, nil).Once()
+		gitRepo.On("CheckoutBranch", mock.Anything, "main").Return(nil).Once()
+		gitRepo.On("DeleteBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CreateBranch", mock.Anything, branchName).Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
@@ -442,11 +444,13 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		orch.stateRepo = stateRepo
 		cfg := PRReleaseConfig{
 			EnableRollback: true,
+			ForceRelease:   true,
 		}
 
 		err := orch.Execute(ctx, cfg)
 		require.NoError(t, err)
 
+		gitRepo.AssertNotCalled(t, "DeleteRemoteBranch", mock.Anything, branchName)
 		gitRepo.AssertNotCalled(t, "PushBranch", mock.Anything, branchName)
 		gitRepo.AssertExpectations(t)
 		githubRepo.AssertExpectations(t)
