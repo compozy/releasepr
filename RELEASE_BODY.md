@@ -1,13 +1,16 @@
-## 0.0.22 - 2026-05-18
-
-
-
-### 🎉 Features
-
-- Custom hooks
+## 0.0.23 - 2026-07-17
 
 
 
 ### 🐛 Bug Fixes
 
-- Lint errors
+- Reopen pull request
+- Accept opaque GitHub tokens
+
+
+
+### 📚 Documentation
+
+- Official skill
+- Design release PR preservation
+- Design opaque GitHub token validation
