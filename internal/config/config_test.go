@@ -119,3 +119,27 @@ func TestConfigValidateReleaseArtifacts(t *testing.T) {
 		require.Contains(t, err.Error(), "command must be one of")
 	})
 }
+
+func TestValidateGitHubToken(t *testing.T) {
+	t.Run("Should accept opaque token values", func(t *testing.T) {
+		tokens := []string{
+			"ghs_1234567890_header.payload.signature",
+			"github-enterprise-token-value",
+		}
+		for _, token := range tokens {
+			require.NoError(t, ValidateGitHubToken(token))
+		}
+	})
+
+	t.Run("Should reject empty tokens", func(t *testing.T) {
+		require.ErrorContains(t, ValidateGitHubToken(""), "token cannot be empty")
+		require.ErrorContains(t, ValidateGitHubToken("   "), "token cannot be empty")
+	})
+
+	t.Run("Should reject whitespace and control characters", func(t *testing.T) {
+		tokens := []string{"token with space", "token\nvalue", "token\x00value"}
+		for _, token := range tokens {
+			require.ErrorContains(t, ValidateGitHubToken(token), "whitespace or control characters")
+		}
+	})
+}

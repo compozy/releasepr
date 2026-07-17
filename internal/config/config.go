@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/compozy/releasepr/internal/logger"
 	"github.com/go-git/go-git/v5"
@@ -209,18 +210,16 @@ func (c *Config) ValidateForGitHubOperations() error {
 	return c.Validate()
 }
 
-// ValidateGitHubToken validates GitHub token format (exported for reuse).
+// ValidateGitHubToken validates that an opaque GitHub token is safe to pass to clients.
 func ValidateGitHubToken(token string) error {
-	token = strings.TrimSpace(token)
-	classicPAT := regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
-	fineGrainedPAT := regexp.MustCompile(`^github_pat_[a-zA-Z0-9_]{82}$`)
-	appToken := regexp.MustCompile(`^ghs_[a-zA-Z0-9]{36}$`)
-	oauthToken := regexp.MustCompile(`^gho_[a-zA-Z0-9]{36}$`)
-	if !classicPAT.MatchString(token) &&
-		!fineGrainedPAT.MatchString(token) &&
-		!appToken.MatchString(token) &&
-		!oauthToken.MatchString(token) {
-		return fmt.Errorf("invalid token format")
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+	containsUnsafeCharacter := strings.IndexFunc(token, func(character rune) bool {
+		return unicode.IsSpace(character) || unicode.IsControl(character)
+	}) >= 0
+	if containsUnsafeCharacter {
+		return fmt.Errorf("token contains whitespace or control characters")
 	}
 	return nil
 }
