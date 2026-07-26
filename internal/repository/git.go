@@ -9,7 +9,5 @@ type GitRepository interface {
 	CommitsSinceTag(ctx context.Context, tag string) (int, error)
 	TagExists(ctx context.Context, tag string) (bool, error)
 	CreateBranch(ctx context.Context, name string) error
-	CreateTag(ctx context.Context, tag, msg string) error
-	PushTag(ctx context.Context, tag string) error
 	PushBranch(ctx context.Context, name string) error
 }

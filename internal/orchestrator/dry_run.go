@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,7 +24,6 @@ const (
 	githubActionsTrue     = "true"
 	envGithubIssueNumber  = "GITHUB_ISSUE_NUMBER"
 	envGithubEventPath    = "GITHUB_EVENT_PATH"
-	envGithubHeadRef      = "GITHUB_HEAD_REF"
 	envGithubSHA          = "GITHUB_SHA"
 	envGithubActions      = "GITHUB_ACTIONS"
 	metadataJSONPath      = "dist/metadata.json"
@@ -37,30 +35,23 @@ const (
 // DryRunConfig holds configuration for the dry-run orchestrator
 type DryRunConfig struct {
 	CIOutput bool // Output in CI format
-	DryRun   bool // Always true for this orchestrator, but for consistency
 }
 
 // DryRunOrchestrator orchestrates the dry-run validation process
 type DryRunOrchestrator struct {
-	gitRepo       repository.GitExtendedRepository
 	githubRepo    repository.GithubExtendedRepository
-	cliffSvc      service.CliffService
-	goreleaserSvc service.GoReleaserService // Assuming this exists in service/goreleaser.go
+	goreleaserSvc service.GoReleaserService
 	fsRepo        afero.Fs
 }
 
 // NewDryRunOrchestrator creates a new DryRunOrchestrator
 func NewDryRunOrchestrator(
-	gitRepo repository.GitExtendedRepository,
 	githubRepo repository.GithubExtendedRepository,
-	cliffSvc service.CliffService,
 	goreleaserSvc service.GoReleaserService,
 	fsRepo afero.Fs,
 ) *DryRunOrchestrator {
 	return &DryRunOrchestrator{
-		gitRepo:       gitRepo,
 		githubRepo:    githubRepo,
-		cliffSvc:      cliffSvc,
 		goreleaserSvc: goreleaserSvc,
 		fsRepo:        fsRepo,
 	}
@@ -80,11 +71,6 @@ func (o *DryRunOrchestrator) Execute(ctx context.Context, cfg DryRunConfig) erro
 	if err := o.stepRunGoReleaser(ctx, cfg); err != nil {
 		return err
 	}
-	_, err := o.stepExtractVersion(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	// NPM validation of tools/ removed from dry-run pipeline
 	if os.Getenv(envGithubActions) == githubActionsTrue {
 		if err := o.stepCommentPR(ctx, cfg); err != nil {
 			return err
@@ -115,21 +101,6 @@ func (o *DryRunOrchestrator) stepRunGoReleaser(ctx context.Context, cfg DryRunCo
 	o.logger(ctx).Info("Completed GoReleaser dry-run")
 	return nil
 }
-
-// stepExtractVersion extracts version from branch name
-func (o *DryRunOrchestrator) stepExtractVersion(ctx context.Context, cfg DryRunConfig) (string, error) {
-	o.logStatus(ctx, cfg.CIOutput, "### 📦 Validating NPM packages")
-	o.logger(ctx).Info("Extracting version from branch")
-	version, err := o.extractVersionFromBranch(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract version: %w", err)
-	}
-	o.logger(ctx).Info("Detected version", zap.String("version", version))
-	return version, nil
-}
-
-// stepValidateNPM validates NPM package versions
-// stepValidateNPM removed: tools/ update/validation is no longer part of the release process
 
 // stepCommentPR creates PR comment with dry-run results
 func (o *DryRunOrchestrator) stepCommentPR(ctx context.Context, _ DryRunConfig) error {
@@ -187,30 +158,6 @@ func (o *DryRunOrchestrator) runGoReleaserDry(ctx context.Context) error {
 		"--release-footer-tmpl="+releaseFooterTmplPath,
 	)
 }
-
-// extractVersionFromBranch extracts version from GITHUB_HEAD_REF or branch name
-func (o *DryRunOrchestrator) extractVersionFromBranch(ctx context.Context) (string, error) {
-	headRef := os.Getenv(envGithubHeadRef)
-	if headRef == "" {
-		// Fallback to current branch
-		branch, err := o.gitRepo.GetCurrentBranch(ctx)
-		if err != nil {
-			return "", err
-		}
-		headRef = branch
-	}
-	re := regexp.MustCompile(`v?\d+\.\d+\.\d+`)
-	matches := re.FindStringSubmatch(headRef)
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no version found in branch name: %s", headRef)
-	}
-	version := matches[0]
-	version = strings.TrimPrefix(version, "v") // Remove 'v' prefix if present
-	return version, nil
-}
-
-// validateNPMVersions runs UpdatePackageVersions (idempotent check; since branch may already have updates)
-// validateNPMVersions removed
 
 // commentOnPR reads metadata.json, builds body, adds comment via GithubRepo
 func (o *DryRunOrchestrator) commentOnPR(ctx context.Context) error {

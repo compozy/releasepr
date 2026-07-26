@@ -40,6 +40,7 @@ const (
 	minReleaseArtifactTimeoutSeconds = 1
 	maxReleaseArtifactTimeoutSeconds = 3600
 	releaseArtifactSupportedCommands = "bun, go, make, node, npm, npx, pnpm, yarn"
+	releaseArtifactCommandBun        = "bun"
 )
 
 func DefaultConfig() *Config {
@@ -166,8 +167,8 @@ func validateReleaseArtifacts(commands []ReleaseArtifactCommand) error {
 
 func NormalizeReleaseArtifactCommand(command string) (string, error) {
 	switch strings.TrimSpace(command) {
-	case "bun":
-		return "bun", nil
+	case releaseArtifactCommandBun:
+		return releaseArtifactCommandBun, nil
 	case "go":
 		return "go", nil
 	case "make":

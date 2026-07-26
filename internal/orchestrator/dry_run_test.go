@@ -34,16 +34,13 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 	t.Run("Should successfully execute dry-run validation", func(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
-		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
-		cliffSvc := new(mockCliffService)
 		goreleaserSvc := new(mockGoReleaserService)
 
-		orch := NewDryRunOrchestrator(gitRepo, githubRepo, cliffSvc, goreleaserSvc, fsRepo)
+		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		// Setup expectations
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
 		// Setup test environment
-		t.Setenv("GITHUB_HEAD_REF", "release/v1.1.0")
 		t.Setenv("GITHUB_ACTIONS", "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "123")
 		// no tools validation
@@ -64,42 +61,34 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 	t.Run("Should fail when GoReleaser dry-run fails", func(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
-		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
-		cliffSvc := new(mockCliffService)
 		goreleaserSvc := new(mockGoReleaserService)
-		orch := NewDryRunOrchestrator(gitRepo, githubRepo, cliffSvc, goreleaserSvc, fsRepo)
-		t.Setenv("GITHUB_HEAD_REF", "release/v1.1.0")
+		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).
 			Return(errors.New("dry-run failed"))
 		err := orch.Execute(ctx, DryRunConfig{})
 		assert.ErrorContains(t, err, "GoReleaser dry-run failed")
 	})
 
-	t.Run("Should fail when no version found in branch name", func(t *testing.T) {
+	t.Run("Should not infer a version from the branch name", func(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
-		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
-		cliffSvc := new(mockCliffService)
 		goreleaserSvc := new(mockGoReleaserService)
-		orch := NewDryRunOrchestrator(gitRepo, githubRepo, cliffSvc, goreleaserSvc, fsRepo)
+		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		t.Setenv("GITHUB_HEAD_REF", "feature/no-version")
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
 		err := orch.Execute(ctx, DryRunConfig{})
-		assert.ErrorContains(t, err, "no version found in branch name")
+		require.NoError(t, err)
 	})
 
 	t.Run("Should handle invalid metadata.json gracefully", func(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
 		// no tools directory required
-		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
-		cliffSvc := new(mockCliffService)
 		goreleaserSvc := new(mockGoReleaserService)
-		orch := NewDryRunOrchestrator(gitRepo, githubRepo, cliffSvc, goreleaserSvc, fsRepo)
-		t.Setenv("GITHUB_HEAD_REF", "release/v1.1.0")
+		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		t.Setenv("GITHUB_ACTIONS", "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "123")
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
@@ -117,13 +106,10 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
 		// no tools directory required
-		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
-		cliffSvc := new(mockCliffService)
 		goreleaserSvc := new(mockGoReleaserService)
-		orch := NewDryRunOrchestrator(gitRepo, githubRepo, cliffSvc, goreleaserSvc, fsRepo)
+		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		// Setup CI environment
-		t.Setenv("GITHUB_HEAD_REF", "release/v2.0.0")
 		t.Setenv("GITHUB_ACTIONS", "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "456")
 		t.Setenv("GITHUB_SHA", "abc123def456789")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
@@ -102,34 +103,6 @@ func TestGitRepository_LatestTag(t *testing.T) {
 	})
 }
 
-func TestGitRepository_CreateTag(t *testing.T) {
-	t.Run("Should create tag successfully", func(t *testing.T) {
-		dir, repo := setupTestRepo(t)
-		oldPwd, _ := os.Getwd()
-		err := os.Chdir(dir)
-		require.NoError(t, err)
-		defer os.Chdir(oldPwd)
-		gitRepo := &gitRepository{repo: repo}
-		err = gitRepo.CreateTag(context.Background(), "v1.0.0", "Release v1.0.0")
-		assert.NoError(t, err)
-		// Verify tag was created
-		_, err = repo.Tag("v1.0.0")
-		assert.NoError(t, err)
-	})
-	t.Run("Should return error for duplicate tag", func(t *testing.T) {
-		dir, repo := setupTestRepo(t)
-		oldPwd, _ := os.Getwd()
-		err := os.Chdir(dir)
-		require.NoError(t, err)
-		defer os.Chdir(oldPwd)
-		gitRepo := &gitRepository{repo: repo}
-		err = gitRepo.CreateTag(context.Background(), "v1.0.0", "Release v1.0.0")
-		require.NoError(t, err)
-		err = gitRepo.CreateTag(context.Background(), "v1.0.0", "Release v1.0.0")
-		assert.Error(t, err)
-	})
-}
-
 func TestGitRepository_TagExists(t *testing.T) {
 	t.Run("Should return true when tag exists", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
@@ -156,6 +129,76 @@ func TestGitRepository_TagExists(t *testing.T) {
 		exists, err := gitRepo.TagExists(context.Background(), "v1.0.0")
 		assert.NoError(t, err)
 		assert.False(t, exists)
+	})
+}
+
+func TestGitRepository_ReleaseTagExists(t *testing.T) {
+	t.Run("Should return true when tag exists only on origin", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		remoteDir := t.TempDir()
+		remoteRepo, err := git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+		head, err := repo.Head()
+		require.NoError(t, err)
+		require.NoError(t, remoteRepo.Storer.SetReference(
+			plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), head.Hash()),
+		))
+		_, err = repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
+		require.NoError(t, err)
+		oldPwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		defer func() {
+			require.NoError(t, os.Chdir(oldPwd))
+		}()
+		gitRepo := &gitRepository{repo: repo}
+		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+	t.Run("Should return false when tag is absent locally and on origin", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		remoteDir := t.TempDir()
+		_, err := git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+		_, err = repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
+		require.NoError(t, err)
+		oldPwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		defer func() {
+			require.NoError(t, os.Chdir(oldPwd))
+		}()
+		gitRepo := &gitRepository{repo: repo}
+		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		require.NoError(t, err)
+		assert.False(t, exists)
+	})
+	t.Run("Should fail closed when origin is unavailable", func(t *testing.T) {
+		_, repo := setupTestRepo(t)
+		gitRepo := &gitRepository{repo: repo}
+		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		require.Error(t, err)
+		assert.False(t, exists)
+		assert.ErrorContains(t, err, "failed to get remote origin")
+	})
+}
+
+func TestGitRepository_ResolveRevision(t *testing.T) {
+	t.Run("Should resolve HEAD to its commit", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		oldPwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		defer func() {
+			require.NoError(t, os.Chdir(oldPwd))
+		}()
+		head, err := repo.Head()
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		commit, err := gitRepo.ResolveRevision(t.Context(), "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, head.Hash().String(), commit)
 	})
 }
 

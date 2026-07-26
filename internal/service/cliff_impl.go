@@ -14,6 +14,11 @@ import (
 
 type commandExecutor func(ctx context.Context, name string, args ...string) ([]byte, error)
 
+const (
+	cliffArgTag        = "--tag"
+	cliffArgUnreleased = "--unreleased"
+)
+
 // cliffService is the implementation of the CliffService interface.
 type cliffService struct {
 	timeout  time.Duration
@@ -160,14 +165,14 @@ func (s *cliffService) changelogArgs(version, mode string) ([]string, error) {
 	}
 	switch mode {
 	case "unreleased", "update":
-		return []string{"--unreleased"}, nil
+		return []string{cliffArgUnreleased}, nil
 	case "release":
 		if version == "" {
 			return nil, fmt.Errorf("version required for release mode")
 		}
-		return []string{"--unreleased", "--tag", version, "--strip", "all"}, nil
+		return []string{cliffArgUnreleased, cliffArgTag, version, "--strip", "all"}, nil
 	default:
-		return []string{"--unreleased"}, nil
+		return []string{cliffArgUnreleased}, nil
 	}
 }
 
@@ -178,7 +183,7 @@ func (s *cliffService) fullChangelogArgs(version string) ([]string, error) {
 	if err := s.sanitizeVersion(version); err != nil {
 		return nil, fmt.Errorf("invalid version: %w", err)
 	}
-	return []string{"--tag", version, "-o", "-"}, nil
+	return []string{cliffArgTag, version, "-o", "-"}, nil
 }
 
 func (s *cliffService) validateChangelogOutput(output []byte) (string, error) {

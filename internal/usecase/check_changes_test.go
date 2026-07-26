@@ -36,16 +36,6 @@ func (m *mockGitRepository) CreateBranch(ctx context.Context, name string) error
 	return args.Error(0)
 }
 
-func (m *mockGitRepository) CreateTag(ctx context.Context, tag, msg string) error {
-	args := m.Called(ctx, tag, msg)
-	return args.Error(0)
-}
-
-func (m *mockGitRepository) PushTag(ctx context.Context, tag string) error {
-	args := m.Called(ctx, tag)
-	return args.Error(0)
-}
-
 func (m *mockGitRepository) PushBranch(ctx context.Context, name string) error {
 	args := m.Called(ctx, name)
 	return args.Error(0)

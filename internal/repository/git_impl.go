@@ -24,6 +24,8 @@ type gitRepository struct {
 	pushTimeoutMinutes int
 }
 
+const gitOriginRemoteName = "origin"
+
 // NewGitRepository creates a new GitRepository.
 func NewGitRepository() (GitRepository, error) {
 	repo, err := git.PlainOpen(".")
@@ -33,8 +35,8 @@ func NewGitRepository() (GitRepository, error) {
 	return &gitRepository{repo: repo, pushTimeoutMinutes: 2}, nil
 }
 
-// NewGitExtendedRepository creates a new GitExtendedRepository with all extended operations.
-func NewGitExtendedRepository() (GitExtendedRepository, error) {
+// NewGitExtendedRepository creates a repository with all orchestration operations.
+func NewGitExtendedRepository() (GitOrchestrationRepository, error) {
 	repo, err := git.PlainOpen(".")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
@@ -42,8 +44,8 @@ func NewGitExtendedRepository() (GitExtendedRepository, error) {
 	return &gitRepository{repo: repo, pushTimeoutMinutes: 2}, nil
 }
 
-// NewGitExtendedRepositoryWithTimeout creates a new GitExtendedRepository with custom timeout.
-func NewGitExtendedRepositoryWithTimeout(timeoutMinutes int) (GitExtendedRepository, error) {
+// NewGitExtendedRepositoryWithTimeout creates an orchestration repository with custom timeout.
+func NewGitExtendedRepositoryWithTimeout(timeoutMinutes int) (GitOrchestrationRepository, error) {
 	repo, err := git.PlainOpen(".")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
@@ -57,7 +59,7 @@ func NewGitExtendedRepositoryWithTimeout(timeoutMinutes int) (GitExtendedReposit
 // LatestTag returns the latest git tag.
 func (r *gitRepository) LatestTag(ctx context.Context) (string, error) {
 	// First, try to fetch tags from remote to ensure we have the latest
-	remote, err := r.repo.Remote("origin")
+	remote, err := r.repo.Remote(gitOriginRemoteName)
 	if err == nil {
 		// Fetch tags from remote with timeout (ignore error if already up to date)
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -108,7 +110,7 @@ func (r *gitRepository) fetchTagIfNeeded(ctx context.Context, tag string) (*plum
 		return tagRef, nil
 	}
 	// Tag doesn't exist locally, try to fetch it from remote
-	remote, err := r.repo.Remote("origin")
+	remote, err := r.repo.Remote(gitOriginRemoteName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote: %w", err)
 	}
@@ -187,16 +189,16 @@ func (r *gitRepository) CommitsSinceTag(ctx context.Context, tag string) (int, e
 	return r.countCommitsSince(tagCommitHash)
 }
 
-// TagExists checks if a tag exists.
+// TagExists checks if a tag exists locally.
 func (r *gitRepository) TagExists(_ context.Context, tag string) (bool, error) {
 	_, err := r.repo.Tag(tag)
 	if err == git.ErrTagNotFound {
 		return false, nil
 	}
-	if err != nil && err != git.ErrTagNotFound {
+	if err != nil {
 		return false, fmt.Errorf("failed to check tag %s: %w", tag, err)
 	}
-	return err == nil, nil
+	return true, nil
 }
 
 // CreateBranch creates a new branch.
@@ -215,27 +217,6 @@ func (r *gitRepository) CreateBranch(_ context.Context, name string) error {
 
 	ref := plumbing.NewHashReference(branchRef, head.Hash())
 	return r.repo.Storer.SetReference(ref)
-}
-
-// CreateTag creates a new tag.
-func (r *gitRepository) CreateTag(_ context.Context, tag, msg string) error {
-	head, err := r.repo.Head()
-	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
-	}
-
-	_, err = r.repo.CreateTag(tag, head.Hash(), &git.CreateTagOptions{
-		Message: msg,
-		Tagger: &object.Signature{
-			Name:  "Test User",
-			Email: "test@example.com",
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create tag %s: %w", tag, err)
-	}
-	return nil
 }
 
 // getAuth returns authentication configuration for GitHub Actions
@@ -274,7 +255,7 @@ func (r *gitRepository) getWorkingDirectory() string {
 // getAuthenticatedURL constructs a git remote URL with embedded credentials.
 // Returns the authenticated URL, the auth object (for sanitization), and any error.
 func (r *gitRepository) getAuthenticatedURL() (string, *http.BasicAuth, error) {
-	remote, err := r.repo.Remote("origin")
+	remote, err := r.repo.Remote(gitOriginRemoteName)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get remote 'origin': %w", err)
 	}
@@ -302,16 +283,6 @@ func sanitizeOutput(output string, authURL string, auth *http.BasicAuth) string 
 		sanitized = strings.ReplaceAll(sanitized, auth.Password, "[REDACTED_TOKEN]")
 	}
 	return sanitized
-}
-
-// PushTag pushes a tag to the remote.
-func (r *gitRepository) PushTag(ctx context.Context, tag string) error {
-	pushCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	return r.repo.PushContext(pushCtx, &git.PushOptions{
-		RefSpecs: []config.RefSpec{config.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tag, tag))},
-		Auth:     r.getAuth(),
-	})
 }
 
 // PushBranch pushes a branch to the remote using native git CLI for reliable timeout enforcement.
@@ -433,7 +404,7 @@ func (r *gitRepository) DeleteRemoteBranch(ctx context.Context, name string) err
 	defer cancel()
 	refSpec := config.RefSpec(":refs/heads/" + name)
 	err := r.repo.PushContext(deleteCtx, &git.PushOptions{
-		RemoteName: "origin",
+		RemoteName: gitOriginRemoteName,
 		RefSpecs:   []config.RefSpec{refSpec},
 		Auth:       r.getAuth(),
 	})
@@ -510,7 +481,7 @@ func (r *gitRepository) ListLocalBranches(_ context.Context) ([]string, error) {
 
 // ListRemoteBranches returns a list of all remote branch names.
 func (r *gitRepository) ListRemoteBranches(ctx context.Context) ([]string, error) {
-	remote, err := r.repo.Remote("origin")
+	remote, err := r.repo.Remote(gitOriginRemoteName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote: %w", err)
 	}
@@ -534,7 +505,7 @@ func (r *gitRepository) ListRemoteBranches(ctx context.Context) ([]string, error
 // RemoteBranchExists checks if a specific branch exists on the remote.
 // This is more efficient than ListRemoteBranches when checking a single branch.
 func (r *gitRepository) RemoteBranchExists(ctx context.Context, branchName string) (bool, error) {
-	remote, err := r.repo.Remote("origin")
+	remote, err := r.repo.Remote(gitOriginRemoteName)
 	if err != nil {
 		return false, fmt.Errorf("failed to get remote: %w", err)
 	}

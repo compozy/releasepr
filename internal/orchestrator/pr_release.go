@@ -241,12 +241,12 @@ func (o *PRReleaseOrchestrator) updatePackageVersions(_ context.Context, version
 	// Update root package.json version (tools/ update removed)
 	versionWithoutV := strings.TrimPrefix(version, "v")
 	// Try to update package.json via fsRepo when present; skip silently if absent
-	exists, err := afero.Exists(o.fsRepo, "package.json")
+	exists, err := afero.Exists(o.fsRepo, packageManifestPath)
 	if err != nil {
 		return fmt.Errorf("failed to check root package.json: %w", err)
 	}
 	if exists {
-		data, err := afero.ReadFile(o.fsRepo, "package.json")
+		data, err := afero.ReadFile(o.fsRepo, packageManifestPath)
 		if err != nil {
 			return fmt.Errorf("failed to read root package.json: %w", err)
 		}
@@ -263,7 +263,7 @@ func (o *PRReleaseOrchestrator) updatePackageVersions(_ context.Context, version
 		}
 		// Add trailing newline to match standard JSON formatting
 		newData = append(newData, '\n')
-		if err := afero.WriteFile(o.fsRepo, "package.json", newData, FilePermissionsReadWrite); err != nil {
+		if err := afero.WriteFile(o.fsRepo, packageManifestPath, newData, FilePermissionsReadWrite); err != nil {
 			return fmt.Errorf("failed to write root package.json: %w", err)
 		}
 	}
@@ -292,7 +292,12 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect release notes: %w", err)
 	}
-	if err := afero.WriteFile(o.fsRepo, "CHANGELOG.md", []byte(fullChangelog), FilePermissionsReadWrite); err != nil {
+	if err := afero.WriteFile(
+		o.fsRepo,
+		changelogFilePath,
+		[]byte(fullChangelog),
+		FilePermissionsReadWrite,
+	); err != nil {
 		return nil, fmt.Errorf("failed to write changelog: %w", err)
 	}
 	previousReleaseNotes, err := readOptionalFile(o.fsRepo, ReleaseNotesOutputFile)
@@ -333,11 +338,11 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 	}
 	// Add files
 	filesToAdd := []string{
-		"CHANGELOG.md",
+		changelogFilePath,
 		ReleaseBodyOutputFile,
 		ReleaseNotesOutputFile,
-		"package.json",
-		"package-lock.json",
+		packageManifestPath,
+		packageLockFilePath,
 	}
 	gitKeepExists, err := afero.Exists(o.fsRepo, ReleaseNotesGitKeepPath)
 	if err != nil {
@@ -466,7 +471,7 @@ func (o *PRReleaseOrchestrator) createPullRequest(
 		return fmt.Errorf("failed to prepare PR body: %w", err)
 	}
 	title := fmt.Sprintf("release: Release %s", version)
-	labels := []string{"release-pending", "automated"}
+	labels := []string{releasePRLabelPending, releasePRLabelAutomated}
 	// Create/Update PR with retry for network failures
 	return retry.Do(
 		ctx,
@@ -604,7 +609,7 @@ func (o *PRReleaseOrchestrator) addCalculateVersionStep(
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if !wctx.hasChanges && !cfg.ForceRelease {
 				o.logStatus(ctx, cfg.CIOutput, "No changes detected since last release")
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Calculating version", zap.String("latest_tag", wctx.latestTag))
 			var err error
@@ -638,7 +643,7 @@ func (o *PRReleaseOrchestrator) addCreateBranchStep(
 		Type: domain.OperationTypeCreateBranch,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			branchName, err := o.prepareBranchName(ctx, saga, wctx)
 			if err != nil {
@@ -770,7 +775,7 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 		Type: domain.OperationTypeUpdatePackages,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Preparing release artifacts", zap.String("version", wctx.version))
 			g, gctx := errgroup.WithContext(ctx)
@@ -807,9 +812,9 @@ func (o *PRReleaseOrchestrator) addPrepareReleaseArtifactsStep(
 			wctx.releaseArtifactAddPatterns = artifactResult.addPatterns
 			o.logger(ctx).Info("Release artifacts prepared successfully", zap.String("version", wctx.version))
 			modifiedFiles := []string{
-				"package.json",
-				"package-lock.json",
-				"CHANGELOG.md",
+				packageManifestPath,
+				packageLockFilePath,
+				changelogFilePath,
 				ReleaseBodyOutputFile,
 				ReleaseNotesOutputFile,
 			}
@@ -836,7 +841,7 @@ func (o *PRReleaseOrchestrator) addArchiveReleaseNotesStep(
 		Type: domain.OperationTypeArchiveNotes,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" || cfg.DryRun {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Archiving release notes", zap.String("version", wctx.version))
 			result, err := o.archiveReleaseNotes(ctx, wctx.version)
@@ -861,7 +866,7 @@ func (o *PRReleaseOrchestrator) addCommitChangesStep(
 		Type: domain.OperationTypeCommitChanges,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" || cfg.DryRun {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Committing changes", zap.String("version", wctx.version))
 			if err := o.commitChanges(ctx, wctx.version, wctx.releaseArtifactAddPatterns); err != nil {
@@ -908,7 +913,7 @@ func (o *PRReleaseOrchestrator) addPushBranchStep(
 		Type: domain.OperationTypePushBranch,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" || cfg.DryRun {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			// Use force push when the remote branch already existed to update the automated release PR branch.
 			var err error
@@ -948,7 +953,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 		Type: domain.OperationTypeCreatePR,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" || cfg.SkipPR || cfg.DryRun {
-				return map[string]any{"skip": true}, nil
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Preparing pull request", zap.String("version", wctx.version))
 			changelog := wctx.changelog
@@ -969,7 +974,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				return nil, fmt.Errorf("failed to prepare PR body: %w", err)
 			}
 			title := fmt.Sprintf("release: Release %s", wctx.version)
-			labels := []string{"release-pending", "automated"}
+			labels := []string{releasePRLabelPending, releasePRLabelAutomated}
 			o.logger(ctx).Info("Creating or updating pull request",
 				zap.String("branch", wctx.branchName),
 				zap.String("base", "main"),

@@ -14,7 +14,6 @@ func NewDryRunCmd(o *orchestrator.DryRunOrchestrator) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := orchestrator.DryRunConfig{
 				CIOutput: ciOutput,
-				DryRun:   true,
 			}
 			return o.Execute(cmd.Context(), cfg)
 		},

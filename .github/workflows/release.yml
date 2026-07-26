@@ -195,7 +195,6 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_HEAD_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.head_ref }}
           GITHUB_ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
         run: ./bin/pr-release dry-run --ci-output

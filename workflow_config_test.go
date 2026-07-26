@@ -96,7 +96,7 @@ func TestReleaseWorkflowConfig(t *testing.T) {
 		dryRunStep := findStepByName(t, dryRun, "Run Dry-Run Orchestrator")
 		dryRunEnv := mappingValue(dryRunStep, "env")
 		require.NotNil(t, dryRunEnv)
-		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_HEAD_REF").Value, "inputs.head_ref")
+		assert.Nil(t, mappingValue(dryRunEnv, "GITHUB_HEAD_REF"))
 		assert.Contains(t, mappingValue(dryRunEnv, "GITHUB_ISSUE_NUMBER").Value, "inputs.pr_number")
 	})
 

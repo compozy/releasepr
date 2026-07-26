@@ -10,6 +10,7 @@ import (
 	"github.com/compozy/releasepr/internal/orchestrator"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/service"
+	"github.com/compozy/releasepr/internal/usecase"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -148,13 +149,12 @@ func addOrchestratorCommands(ctx context.Context, c *container) error {
 		c.npmSvc,
 	)
 	rootCmd.AddCommand(NewPRReleaseCmd(prOrch))
+	rootCmd.AddCommand(NewPlanCmd(usecase.NewPlanReleaseUseCase(gitExtRepo)))
 
 	// Create Dry Run orchestrator
 	goreleaserSvc := service.NewGoReleaserService()
 	dryRunOrch := orchestrator.NewDryRunOrchestrator(
-		gitExtRepo,
 		githubExtRepo,
-		c.cliffSvc,
 		goreleaserSvc,
 		c.fsRepo,
 	)

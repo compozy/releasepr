@@ -73,4 +73,11 @@ const (
 	ReleaseBodyOutputFile = "RELEASE_BODY.md"
 	// ReleaseNotesGitKeepPath is the placeholder file that keeps `.release-notes/` in git.
 	ReleaseNotesGitKeepPath = ".release-notes/.gitkeep"
+	changelogFilePath       = "CHANGELOG.md"
+	packageManifestPath     = "package.json"
+	packageLockFilePath     = "package-lock.json"
+	releasePRLabelPending   = "release-pending"
+	releasePRLabelAutomated = "automated"
+	sagaStepSkipKey         = "skip"
+	releaseArtifactBun      = "bun"
 )

@@ -69,8 +69,8 @@ func releaseArtifactExecCommand(ctx context.Context, command string, args []stri
 		return nil, err
 	}
 	switch commandName {
-	case "bun":
-		return exec.CommandContext(ctx, "bun", args...), nil
+	case releaseArtifactBun:
+		return exec.CommandContext(ctx, releaseArtifactBun, args...), nil
 	case "go":
 		return exec.CommandContext(ctx, "go", args...), nil
 	case "make":
@@ -169,7 +169,7 @@ func releaseArtifactEnvironment(
 		"PR_RELEASE_VERSION_NUMBER": strings.TrimPrefix(version, "v"),
 		"PR_RELEASE_BRANCH":         branchName,
 		"PR_RELEASE_PREVIOUS_TAG":   previousTag,
-		"PR_RELEASE_CHANGELOG_PATH": "CHANGELOG.md",
+		"PR_RELEASE_CHANGELOG_PATH": changelogFilePath,
 		"PR_RELEASE_BODY_PATH":      ReleaseBodyOutputFile,
 		"PR_RELEASE_NOTES_PATH":     ReleaseNotesOutputFile,
 		"PR_RELEASE_DATE":           time.Now().UTC().Format(time.RFC3339),

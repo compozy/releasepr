@@ -33,14 +33,6 @@ func (s *archiveGitRepoStub) CreateBranch(context.Context, string) error {
 	return nil
 }
 
-func (s *archiveGitRepoStub) CreateTag(context.Context, string, string) error {
-	return nil
-}
-
-func (s *archiveGitRepoStub) PushTag(context.Context, string) error {
-	return nil
-}
-
 func (s *archiveGitRepoStub) PushBranch(context.Context, string) error {
 	return nil
 }

@@ -27,14 +27,6 @@ func (m *mockGitExtendedRepository) CreateBranch(ctx context.Context, name strin
 	args := m.Called(ctx, name)
 	return args.Error(0)
 }
-func (m *mockGitExtendedRepository) CreateTag(ctx context.Context, tag, msg string) error {
-	args := m.Called(ctx, tag, msg)
-	return args.Error(0)
-}
-func (m *mockGitExtendedRepository) PushTag(ctx context.Context, tag string) error {
-	args := m.Called(ctx, tag)
-	return args.Error(0)
-}
 
 // GitExtendedRepository specific methods
 func (m *mockGitExtendedRepository) CheckoutBranch(ctx context.Context, branch string) error {

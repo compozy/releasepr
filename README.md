@@ -12,6 +12,7 @@ The tool wraps the end-to-end release workflow:
 - Creates or updates release branches and tags
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
+- Validates explicit beta, stable, and legacy release inputs as one machine-readable plan
 
 ## Agent Skill
 
@@ -68,6 +69,7 @@ The CLI is built with Cobra and exposes the following commands:
 | `add-note`   | Create a custom release note entry                   |
 | `pr-release` | Run the full release orchestration workflow          |
 | `dry-run`    | Execute release steps without pushing or opening PRs |
+| `plan`       | Validate and emit an explicit release plan           |
 | `version`    | Print build metadata                                 |
 
 Run `go run . <command> --help` for detailed flags.
@@ -117,6 +119,42 @@ The generated files live in `.release-notes/` and are archived automatically to
 
 > Prefer not to use `jq`? Head to the [Releases](https://github.com/compozy/releasepr/releases) page,
 > pick the desired tag manually, and substitute it for `${VERSION}` in the snippet above.
+
+### Plan an explicit release
+
+Use `plan` when a workflow supplies the release ref, version, and channel instead
+of deriving them from commits or branch names:
+
+```bash
+pr-release plan \
+  --ref refs/heads/main \
+  --version 0.3.0-beta.1 \
+  --channel beta
+```
+
+The command is read-only. It requires the ref to resolve to the checked-out
+`HEAD`, rejects an existing local or remote tag, derives `v0.3.0-beta.1` once,
+and returns the version, tag, commit, and publication policy as JSON. The
+version must be strict SemVer without a leading `v`.
+
+For GitHub Actions, write deterministic outputs directly to the step output
+file:
+
+```yaml
+- name: Plan release
+  id: release_plan
+  run: >-
+    go run "${{ env.PR_RELEASE_MODULE }}" plan
+    --ref "${{ inputs.ref }}"
+    --version "${{ inputs.version }}"
+    --channel "${{ inputs.channel }}"
+    --format github >> "$GITHUB_OUTPUT"
+```
+
+`beta` produces GitHub prerelease intent, npm tag `beta`, and a Homebrew skip.
+`stable` and `legacy` produce stable/latest intent, npm tag `latest`, and a
+Homebrew publish. The consuming workflow creates the tag and performs the
+publishing from these outputs; it must not infer or normalize them again.
 
 ### From source (optional)
 
