@@ -31,6 +31,8 @@ func toIface(ss []string) []any {
 }
 
 func TestDryRunOrchestrator_Execute(t *testing.T) {
+	t.Setenv(envGithubActions, "false")
+
 	t.Run("Should successfully execute dry-run validation", func(t *testing.T) {
 		ctx := context.Background()
 		fsRepo := afero.NewMemMapFs()
@@ -41,7 +43,7 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 		// Setup expectations
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
 		// Setup test environment
-		t.Setenv("GITHUB_ACTIONS", "true")
+		t.Setenv(envGithubActions, "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "123")
 		// no tools validation
 		// Create mock metadata file that GoReleaser would generate
@@ -89,7 +91,7 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 		githubRepo := new(mockGithubExtendedRepository)
 		goreleaserSvc := new(mockGoReleaserService)
 		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
-		t.Setenv("GITHUB_ACTIONS", "true")
+		t.Setenv(envGithubActions, "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "123")
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
 		// Create dist directory and invalid metadata file
@@ -110,7 +112,7 @@ func TestDryRunOrchestrator_Execute(t *testing.T) {
 		goreleaserSvc := new(mockGoReleaserService)
 		orch := NewDryRunOrchestrator(githubRepo, goreleaserSvc, fsRepo)
 		// Setup CI environment
-		t.Setenv("GITHUB_ACTIONS", "true")
+		t.Setenv(envGithubActions, "true")
 		t.Setenv("GITHUB_ISSUE_NUMBER", "456")
 		t.Setenv("GITHUB_SHA", "abc123def456789")
 		goreleaserSvc.On("Run", append([]any{mock.Anything}, toIface(goreleaserArgs)...)...).Return(nil)
