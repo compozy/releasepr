@@ -5,7 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.24 - 2026-07-26
+
+
+
+### 🎉 Features
+
+- Add explicit release plans
+
+
+
+### 🧪 Testing
+
+- Isolate dry-run CI environment
+
+
+
 ## 0.0.23 - 2026-07-17
+
+
+
+### Other Changes
+
+- Prepare release v0.0.23 (#12)
 
 
 
@@ -249,6 +271,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(repo)* Fix build
 
 
+[0.0.24]: https://github.com/compozy/releasepr/compare/v0.0.23...v0.0.24
 [0.0.23]: https://github.com/compozy/releasepr/compare/v0.0.22...v0.0.23
 [0.0.22]: https://github.com/compozy/releasepr/compare/v0.0.21...v0.0.22
 [0.0.21]: https://github.com/compozy/releasepr/compare/v0.0.20...v0.0.21

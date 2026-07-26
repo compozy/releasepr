@@ -1,16 +1,13 @@
-## 0.0.23 - 2026-07-17
+## 0.0.24 - 2026-07-26
 
 
 
-### 🐛 Bug Fixes
+### 🎉 Features
 
-- Reopen pull request
-- Accept opaque GitHub tokens
-
+- Add explicit release plans
 
 
-### 📚 Documentation
 
-- Official skill
-- Design release PR preservation
-- Design opaque GitHub token validation
+### 🧪 Testing
+
+- Isolate dry-run CI environment
