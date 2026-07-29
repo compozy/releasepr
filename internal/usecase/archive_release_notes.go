@@ -135,7 +135,7 @@ func (uc *ArchiveReleaseNotesUseCase) activeReleaseNoteFiles() ([]string, error)
 	}
 	files := make([]string, 0)
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != releaseNoteMarkdownExt {
 			continue
 		}
 		files = append(files, filepath.Join(releaseNotesDir, entry.Name()))

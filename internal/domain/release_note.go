@@ -92,3 +92,17 @@ func (c ReleaseNotesCollection) RenderMarkdown() string {
 	}
 	return strings.TrimSpace(builder.String())
 }
+
+// BuildReleaseBody combines a git-cliff changelog with optional custom release notes.
+func BuildReleaseBody(changelog, releaseNotes string) string {
+	trimmedChangelog := strings.TrimSpace(changelog)
+	trimmedReleaseNotes := strings.TrimSpace(releaseNotes)
+	switch {
+	case trimmedChangelog == "":
+		return trimmedReleaseNotes
+	case trimmedReleaseNotes == "":
+		return trimmedChangelog
+	default:
+		return trimmedChangelog + "\n\n" + trimmedReleaseNotes
+	}
+}

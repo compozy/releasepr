@@ -43,7 +43,7 @@ output or running commands. They are load-bearing, not appendices.
 - `references/configuration.md` — every `.pr-release.yaml` field, defaults,
   validation rules, the full environment-variable alias matrix, and
   `release_artifacts` constraints.
-- `references/commands.md` — `pr-release`, `plan`, `dry-run`, `add-note`, `version`:
+- `references/commands.md` — `pr-release`, `plan`, `release-body`, `dry-run`, `add-note`, `version`:
   every flag and its exact behavior.
 - `references/release-workflow.md` — the end-to-end lifecycle: which commits
   trigger what, release branch/PR naming, dry-run checks, and how a merge
@@ -81,7 +81,7 @@ output or running commands. They are load-bearing, not appendices.
    `go run "<module>@<pinned tag>"`. `--force` makes it idempotent, not "release
    with no changes".
    **STOP. Read `references/commands.md` in full before running `pr-release`,
-   `plan`, `dry-run`, or `add-note`, or adding any flag to a script.** The flag list
+   `plan`, `release-body`, `dry-run`, or `add-note`, or adding any flag to a script.** The flag list
    here is a tripwire; semantics (e.g. `--rollback`, `--session-id`,
    `--skip-pr`) are only correct in that file.
 

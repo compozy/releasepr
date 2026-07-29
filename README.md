@@ -13,6 +13,7 @@ The tool wraps the end-to-end release workflow:
 - Manages NPM package version bumps when a `tools/` workspace is present
 - Produces ready-to-merge release pull requests with rollback support
 - Validates explicit beta, stable, and legacy release inputs as one machine-readable plan
+- Renders explicit release bodies from the exact predecessor-to-commit Git range
 
 ## Agent Skill
 
@@ -64,13 +65,14 @@ tools_dir: "tools"
 
 The CLI is built with Cobra and exposes the following commands:
 
-| Command      | Description                                          |
-| ------------ | ---------------------------------------------------- |
-| `add-note`   | Create a custom release note entry                   |
-| `pr-release` | Run the full release orchestration workflow          |
-| `dry-run`    | Execute release steps without pushing or opening PRs |
-| `plan`       | Validate and emit an explicit release plan           |
-| `version`    | Print build metadata                                 |
+| Command        | Description                                          |
+| -------------- | ---------------------------------------------------- |
+| `add-note`     | Create a custom release note entry                   |
+| `pr-release`   | Run the full release orchestration workflow          |
+| `dry-run`      | Execute release steps without pushing or opening PRs |
+| `plan`         | Validate and emit an explicit release plan           |
+| `release-body` | Render a release body from an explicit Git range     |
+| `version`      | Print build metadata                                 |
 
 Run `go run . <command> --help` for detailed flags.
 
@@ -134,8 +136,12 @@ pr-release plan \
 
 The command is read-only. It requires the ref to resolve to the checked-out
 `HEAD`, rejects an existing local or remote tag, derives `v0.3.0-beta.1` once,
-and returns the version, tag, commit, and publication policy as JSON. The
-version must be strict SemVer without a leading `v`.
+and returns the version, tag, commit, predecessor tag, Git range, and
+publication policy as JSON. The version must be strict SemVer without a
+leading `v`. Beta plans consider prerelease tags when selecting the nearest
+predecessor on the first-parent release line; stable and legacy plans consider
+stable tags only. `initial_release` is true only when that line has no matching
+predecessor.
 
 For GitHub Actions, write deterministic outputs directly to the step output
 file:
@@ -155,6 +161,19 @@ file:
 `stable` and `legacy` produce stable/latest intent, npm tag `latest`, and a
 Homebrew publish. The consuming workflow creates the tag and performs the
 publishing from these outputs; it must not infer or normalize them again.
+
+Render the body before creating the tag and pass the planned range unchanged:
+
+```bash
+pr-release release-body \
+  --tag "$RELEASE_TAG" \
+  --range "$RELEASE_GIT_RANGE" > release-body.md
+```
+
+The command writes Markdown only to stdout. `git-cliff` receives the exact
+range, and custom notes are limited to files introduced in that range for the
+target core version. When `release_initial` is true, pass `--initial` instead
+of `--range`; omitting both selectors fails closed.
 
 ### From source (optional)
 

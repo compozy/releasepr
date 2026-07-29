@@ -305,7 +305,7 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 		return nil, fmt.Errorf("failed to read existing release notes: %w", err)
 	}
 	releaseNotes := collection.RenderMarkdown()
-	releaseBodyDocument := buildReleaseBodyDocument(changelog, releaseNotes)
+	releaseBodyDocument := domain.BuildReleaseBody(changelog, releaseNotes)
 	releaseNotesDocument := buildHistoricalReleaseNotesDocument(version, releaseBodyDocument, previousReleaseNotes)
 	if err := afero.WriteFile(
 		o.fsRepo,
@@ -387,19 +387,6 @@ func readOptionalFile(fsRepo repository.FileSystemRepository, path string) (stri
 		return "", err
 	}
 	return string(data), nil
-}
-
-func buildReleaseBodyDocument(changelog, releaseNotes string) string {
-	trimmedChangelog := strings.TrimSpace(changelog)
-	trimmedReleaseNotes := strings.TrimSpace(releaseNotes)
-	switch {
-	case trimmedChangelog == "":
-		return trimmedReleaseNotes
-	case trimmedReleaseNotes == "":
-		return trimmedChangelog
-	default:
-		return trimmedChangelog + "\n\n" + trimmedReleaseNotes
-	}
 }
 
 func buildHistoricalReleaseNotesDocument(version, currentBody, previousDocument string) string {
