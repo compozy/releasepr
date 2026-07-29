@@ -1,13 +1,7 @@
-## 0.0.24 - 2026-07-26
+## 0.0.25 - 2026-07-29
 
 
 
-### 🎉 Features
+### 🐛 Bug Fixes
 
-- Add explicit release plans
-
-
-
-### 🧪 Testing
-
-- Isolate dry-run CI environment
+- Scope explicit release bodies to planned ranges (#14)
