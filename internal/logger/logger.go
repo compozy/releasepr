@@ -20,9 +20,9 @@ type Config struct {
 type contextKey struct{}
 
 const (
-	formatJSON    = "json"
-	formatConsole = "console"
-	stderrPath    = "stderr"
+	formatJSON           = "json"
+	formatConsole        = "console"
+	stderrPath    string = "stderr"
 )
 
 func New(cfg Config) (*zap.Logger, error) {

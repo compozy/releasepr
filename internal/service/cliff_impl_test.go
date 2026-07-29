@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/compozy/releasepr/internal/config"
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type capturedCommand struct {
@@ -79,7 +82,7 @@ func TestCliffService_GenerateReleaseBodyChangelog(t *testing.T) {
 			},
 		}
 		changelog, err := svc.GenerateReleaseBodyChangelog(
-			t.Context(),
+			testCliffContext(t),
 			"v1.2.3-beta.2",
 			"v1.2.3-beta.1..abcdef",
 			false,
@@ -97,7 +100,7 @@ func TestCliffService_GenerateReleaseBodyChangelog(t *testing.T) {
 	t.Run("Should reject a malformed git range", func(t *testing.T) {
 		svc := &cliffService{}
 		changelog, err := svc.GenerateReleaseBodyChangelog(
-			t.Context(),
+			testCliffContext(t),
 			"v1.2.3-beta.2",
 			"--output=forged",
 			false,
@@ -108,7 +111,7 @@ func TestCliffService_GenerateReleaseBodyChangelog(t *testing.T) {
 	})
 	t.Run("Should require explicit initial-release mode when the range is empty", func(t *testing.T) {
 		svc := &cliffService{}
-		changelog, err := svc.GenerateReleaseBodyChangelog(t.Context(), "v1.0.0", "", false)
+		changelog, err := svc.GenerateReleaseBodyChangelog(testCliffContext(t), "v1.0.0", "", false)
 		require.Error(t, err)
 		assert.Empty(t, changelog)
 		assert.ErrorContains(t, err, "initial release")
@@ -122,7 +125,7 @@ func TestCliffService_GenerateReleaseBodyChangelog(t *testing.T) {
 				return []byte("## 1.0.0"), nil
 			},
 		}
-		changelog, err := svc.GenerateReleaseBodyChangelog(t.Context(), "v1.0.0", "", true)
+		changelog, err := svc.GenerateReleaseBodyChangelog(testCliffContext(t), "v1.0.0", "", true)
 		require.NoError(t, err)
 		assert.Equal(t, "## 1.0.0", changelog)
 		assert.Equal(t, []string{"--unreleased", "--tag", "v1.0.0", "--strip", "all"}, command.args)
@@ -155,7 +158,7 @@ func TestCliffService_GenerateChangelogIntegration(t *testing.T) {
 		t.Chdir(dir)
 		svc := NewCliffService()
 		changelog, err := svc.GenerateReleaseBodyChangelog(
-			t.Context(),
+			testCliffContext(t),
 			"v1.1.0-beta.2",
 			"v1.1.0-beta.1..HEAD",
 			false,
@@ -165,6 +168,12 @@ func TestCliffService_GenerateChangelogIntegration(t *testing.T) {
 		assert.NotContains(t, changelog, "Current release")
 		assert.NotContains(t, changelog, "First release")
 	})
+}
+
+func testCliffContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx := config.IntoContext(t.Context(), config.DefaultConfig())
+	return logger.IntoContext(ctx, zap.NewNop())
 }
 
 func TestCliffService_GenerateFullChangelog(t *testing.T) {

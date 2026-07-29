@@ -9,9 +9,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/compozy/releasepr/internal/config"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type releaseBodyCliffStub struct {
@@ -71,7 +74,7 @@ This belongs to the prior stable line.
 			".release-notes/archive/v0.3.0/the-os.md",
 		}}
 		uc := NewRenderReleaseBodyUseCase(gitRepo, fsRepo, cliff)
-		body, err := uc.Execute(t.Context(), RenderReleaseBodyInput{
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
 			Tag:      "v0.3.0-beta.1",
 			GitRange: "v0.2.15..abcdef",
 			Initial:  false,
@@ -90,7 +93,7 @@ This belongs to the prior stable line.
 
 		cliff := &releaseBodyCliffStub{changelog: "## 0.3.0-beta.2\n\n### Fixes\n\n- Fix recovery"}
 		uc := NewRenderReleaseBodyUseCase(&releaseBodyGitStub{}, afero.NewMemMapFs(), cliff)
-		body, err := uc.Execute(t.Context(), RenderReleaseBodyInput{
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
 			Tag:      "v0.3.0-beta.2",
 			GitRange: "v0.3.0-beta.1..fedcba",
 			Initial:  false,
@@ -108,7 +111,7 @@ This belongs to the prior stable line.
 			afero.NewMemMapFs(),
 			cliff,
 		)
-		body, err := uc.Execute(t.Context(), RenderReleaseBodyInput{
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
 			Tag:      "v0.3.0-beta.2",
 			GitRange: "v0.3.0-beta.1..fedcba",
 			Initial:  false,
@@ -122,9 +125,15 @@ This belongs to the prior stable line.
 
 		cliff := &releaseBodyCliffStub{changelog: "## 0.3.0-beta.2"}
 		uc := NewRenderReleaseBodyUseCase(&releaseBodyGitStub{}, afero.NewMemMapFs(), cliff)
-		body, err := uc.Execute(t.Context(), RenderReleaseBodyInput{Tag: "v0.3.0-beta.2"})
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{Tag: "v0.3.0-beta.2"})
 		require.Error(t, err)
 		assert.Empty(t, body)
 		assert.ErrorContains(t, err, "initial release")
 	})
+}
+
+func testRenderReleaseBodyContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx := config.IntoContext(t.Context(), config.DefaultConfig())
+	return logger.IntoContext(ctx, zap.NewNop())
 }

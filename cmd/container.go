@@ -82,11 +82,20 @@ func InitCommands() error {
 		return logger.Sync(logger.FromContext(cmd.Context()))
 	}
 	rootCmd.AddCommand(NewAddNoteCmd(c.fsRepo))
+	gitExtRepo, err := repository.NewGitExtendedRepositoryWithTimeout(c.cfg.GitPushTimeoutMinutes)
+	if err != nil {
+		return fmt.Errorf("failed to initialize git extended repository: %w", err)
+	}
+	rootCmd.AddCommand(NewReleaseBodyCmd(usecase.NewRenderReleaseBodyUseCase(
+		gitExtRepo,
+		c.fsRepo,
+		c.cliffSvc,
+	)))
 
 	// Individual commands have been replaced by orchestrator commands
 
 	// Add orchestrator-based commands
-	if err := addOrchestratorCommands(ctx, c); err != nil {
+	if err := addOrchestratorCommands(ctx, c, gitExtRepo); err != nil {
 		return err
 	}
 
@@ -96,13 +105,12 @@ func InitCommands() error {
 }
 
 // addOrchestratorCommands adds the new consolidated commands
-func addOrchestratorCommands(ctx context.Context, c *container) error {
+func addOrchestratorCommands(
+	ctx context.Context,
+	c *container,
+	gitExtRepo repository.GitOrchestrationRepository,
+) error {
 	log := logger.FromContext(ctx).Named("cmd.container")
-	// Initialize extended repositories for orchestrators
-	gitExtRepo, err := repository.NewGitExtendedRepositoryWithTimeout(c.cfg.GitPushTimeoutMinutes)
-	if err != nil {
-		return fmt.Errorf("failed to initialize git extended repository: %w", err)
-	}
 
 	token := c.cfg.GithubToken
 	tokenSource := "config"
@@ -124,7 +132,8 @@ func addOrchestratorCommands(ctx context.Context, c *container) error {
 		zap.Int("token_length", len(token)),
 	)
 	if owner == "" || repo == "" {
-		return fmt.Errorf("github owner/repo not configured; set GITHUB_REPOSITORY or config values")
+		log.Debug("Skipping GitHub-dependent commands without repository configuration")
+		return nil
 	}
 	var githubExtRepo repository.GithubExtendedRepository
 	if token == "" {
@@ -150,11 +159,6 @@ func addOrchestratorCommands(ctx context.Context, c *container) error {
 	)
 	rootCmd.AddCommand(NewPRReleaseCmd(prOrch))
 	rootCmd.AddCommand(NewPlanCmd(usecase.NewPlanReleaseUseCase(gitExtRepo)))
-	rootCmd.AddCommand(NewReleaseBodyCmd(usecase.NewRenderReleaseBodyUseCase(
-		gitExtRepo,
-		c.fsRepo,
-		c.cliffSvc,
-	)))
 
 	// Create Dry Run orchestrator
 	goreleaserSvc := service.NewGoReleaserService()

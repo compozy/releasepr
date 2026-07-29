@@ -15,11 +15,8 @@ func BuildReleaseGitRange(previousTag, commit string) (string, error) {
 	if previousTag == "" {
 		return "", nil
 	}
-	if !strings.HasPrefix(previousTag, "v") {
-		return "", fmt.Errorf("previous release tag %q must start with v", previousTag)
-	}
-	if _, err := semver.StrictNewVersion(strings.TrimPrefix(previousTag, "v")); err != nil {
-		return "", fmt.Errorf("previous release tag %q must be a strict semantic version: %w", previousTag, err)
+	if _, err := parseStrictReleaseTag(previousTag, "previous release"); err != nil {
+		return "", err
 	}
 	gitRange := previousTag + ".." + commit
 	if err := ValidateReleaseGitRange(gitRange); err != nil {
@@ -56,12 +53,20 @@ func ValidateReleaseSelector(gitRange string, initialRelease bool) error {
 
 // CoreReleaseTag returns the stable core tag associated with a prerelease tag.
 func CoreReleaseTag(tag string) (string, error) {
+	version, err := parseStrictReleaseTag(tag, "release")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("v%d.%d.%d", version.Major(), version.Minor(), version.Patch()), nil
+}
+
+func parseStrictReleaseTag(tag, label string) (*semver.Version, error) {
 	if !strings.HasPrefix(tag, "v") {
-		return "", fmt.Errorf("release tag %q must start with v", tag)
+		return nil, fmt.Errorf("%s tag %q must start with v", label, tag)
 	}
 	version, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
 	if err != nil {
-		return "", fmt.Errorf("release tag %q must be a strict semantic version: %w", tag, err)
+		return nil, fmt.Errorf("%s tag %q must be a strict semantic version: %w", label, tag, err)
 	}
-	return fmt.Sprintf("v%d.%d.%d", version.Major(), version.Minor(), version.Patch()), nil
+	return version, nil
 }

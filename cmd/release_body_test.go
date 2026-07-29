@@ -10,9 +10,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/compozy/releasepr/internal/config"
+	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/usecase"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type releaseBodyRendererStub struct {
@@ -38,6 +41,7 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 		renderer := &releaseBodyRendererStub{body: "## 0.3.0-beta.2\n\n- Fix recovery"}
 		output := new(bytes.Buffer)
 		command := NewReleaseBodyCmd(renderer)
+		command.SetContext(testReleaseBodyCommandContext(t))
 		command.SetOut(output)
 		command.SetArgs([]string{
 			"--tag", "v0.3.0-beta.2",
@@ -56,6 +60,7 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 		t.Parallel()
 
 		command := NewReleaseBodyCmd(&releaseBodyRendererStub{})
+		command.SetContext(testReleaseBodyCommandContext(t))
 		err := command.Execute()
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "required flag")
@@ -66,6 +71,7 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 
 		expectedErr := errors.New("render failed")
 		command := NewReleaseBodyCmd(&releaseBodyRendererStub{err: expectedErr})
+		command.SetContext(testReleaseBodyCommandContext(t))
 		command.SetArgs([]string{
 			"--tag", "v0.3.0-beta.2",
 			"--range", "v0.3.0-beta.1..abcdef",
@@ -78,6 +84,7 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 		t.Parallel()
 
 		command := NewReleaseBodyCmd(&releaseBodyRendererStub{})
+		command.SetContext(testReleaseBodyCommandContext(t))
 		command.SetArgs([]string{"--tag", "v0.3.0-beta.2"})
 		err := command.Execute()
 		require.Error(t, err)
@@ -88,6 +95,7 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 
 		renderer := &releaseBodyRendererStub{body: "## 1.0.0"}
 		command := NewReleaseBodyCmd(renderer)
+		command.SetContext(testReleaseBodyCommandContext(t))
 		command.SetOut(new(bytes.Buffer))
 		command.SetArgs([]string{"--tag", "v1.0.0", "--initial"})
 		require.NoError(t, command.Execute())
@@ -96,4 +104,10 @@ func TestNewReleaseBodyCmd(t *testing.T) {
 			Initial: true,
 		}, renderer.input)
 	})
+}
+
+func testReleaseBodyCommandContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx := config.IntoContext(t.Context(), config.DefaultConfig())
+	return logger.IntoContext(ctx, zap.NewNop())
 }

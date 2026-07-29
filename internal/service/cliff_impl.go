@@ -15,11 +15,11 @@ import (
 type commandExecutor func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 const (
-	cliffArgTag        = "--tag"
-	cliffArgStrip      = "--strip"
-	cliffArgUnreleased = "--unreleased"
-	cliffCommand       = "git-cliff"
-	cliffStripAll      = "all"
+	cliffArgTag               = "--tag"
+	cliffArgStrip      string = "--strip"
+	cliffArgUnreleased string = "--unreleased"
+	cliffCommand       string = "git-cliff"
+	cliffStripAll      string = "all"
 )
 
 // cliffService is the implementation of the CliffService interface.

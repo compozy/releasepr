@@ -340,6 +340,18 @@ func TestGitRepository_AddedFiles(t *testing.T) {
 	})
 }
 
+func TestGitRepository_RunReadOnlyGit(t *testing.T) {
+	t.Run("Should preserve stderr when Git exits unsuccessfully", func(t *testing.T) {
+		_, repo := setupTestRepo(t)
+		gitRepo := &gitRepository{repo: repo}
+
+		output, err := gitRepo.runReadOnlyGit(t.Context(), "rev-parse", "--verify", "missing")
+		require.Error(t, err)
+		assert.Empty(t, output)
+		assert.ErrorContains(t, err, "stderr: fatal: Needed a single revision")
+	})
+}
+
 func TestGitRepository_CreateBranch(t *testing.T) {
 	t.Run("Should create branch successfully", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)

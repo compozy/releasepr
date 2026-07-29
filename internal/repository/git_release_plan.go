@@ -171,9 +171,18 @@ func (r *gitRepository) runReadOnlyGit(ctx context.Context, args ...string) (str
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = r.getWorkingDirectory()
 	cmd.Env = append(os.Environ(), r.getGitEnv()...)
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s failed: %w (output: %s)", args[0], err, strings.TrimSpace(string(output)))
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf(
+				"git %s failed: %w (stderr: %s)",
+				args[0],
+				err,
+				strings.TrimSpace(string(exitErr.Stderr)),
+			)
+		}
+		return "", fmt.Errorf("git %s failed: %w", args[0], err)
 	}
 	return string(output), nil
 }
