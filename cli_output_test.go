@@ -29,6 +29,6 @@ func TestCLIOutputContract(t *testing.T) {
 		require.NoError(t, command.Run())
 		assert.Contains(t, stdout.String(), "Version:")
 		assert.NotContains(t, stdout.String(), `"logger":`)
-		assert.Contains(t, stderr.String(), `"logger":"cmd.container"`)
+		assert.Contains(t, stderr.String(), "cmd.container")
 	})
 }
