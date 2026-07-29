@@ -202,6 +202,144 @@ func TestGitRepository_ResolveRevision(t *testing.T) {
 	})
 }
 
+func TestGitRepository_PreviousReleaseTag(t *testing.T) {
+	t.Run("Should select the nearest reachable tag according to channel policy", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		initial, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0", initial.Hash(), nil)
+		require.NoError(t, err)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "test.txt"), []byte("beta one"), 0644))
+		_, err = wt.Add("test.txt")
+		require.NoError(t, err)
+		betaCommit, err := wt.Commit("feat: beta one", &git.CommitOptions{
+			Author: &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.1.0-beta.1", betaCommit, nil)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "test.txt"), []byte("beta two"), 0644))
+		_, err = wt.Add("test.txt")
+		require.NoError(t, err)
+		targetCommit, err := wt.Commit("fix: beta two", &git.CommitOptions{
+			Author: &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		_, err = repo.CreateTag("vpreview", targetCommit, nil)
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		betaTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), true)
+		require.NoError(t, err)
+		assert.Equal(t, "v1.1.0-beta.1", betaTag)
+		stableTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), false)
+		require.NoError(t, err)
+		assert.Equal(t, "v1.0.0", stableTag)
+	})
+
+	t.Run("Should return an empty predecessor when no semantic release tag is reachable", func(t *testing.T) {
+		_, repo := setupTestRepo(t)
+		head, err := repo.Head()
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), head.Hash().String(), true)
+		require.NoError(t, err)
+		assert.Empty(t, tag)
+	})
+	t.Run("Should ignore a closer tag from a merged side branch", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		base, err := repo.Head()
+		require.NoError(t, err)
+		mainCommit := commitFixtureWithParents(t, dir, wt, "main", "feat: main release", base.Hash())
+		_, err = repo.CreateTag("v1.0.0", mainCommit, &git.CreateTagOptions{
+			Message: "Release v1.0.0",
+			Tagger:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		sideCommit := commitFixtureWithParents(t, dir, wt, "side", "feat: side release", mainCommit)
+		_, err = repo.CreateTag("v9.9.9", sideCommit, &git.CreateTagOptions{
+			Message: "Release v9.9.9",
+			Tagger:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		mainNext := commitFixtureWithParents(t, dir, wt, "main next", "fix: main follow-up", mainCommit)
+		mergeCommit, err := wt.Commit("build: merge side branch", &git.CommitOptions{
+			AllowEmptyCommits: true,
+			Author:            &object.Signature{Name: "Test User", Email: "test@example.com"},
+			Parents:           []plumbing.Hash{mainNext, sideCommit},
+		})
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), mergeCommit.String(), false)
+		require.NoError(t, err)
+		assert.Equal(t, "v1.0.0", tag)
+	})
+}
+
+func commitFixtureWithParents(
+	t *testing.T,
+	dir string,
+	wt *git.Worktree,
+	content string,
+	message string,
+	parents ...plumbing.Hash,
+) plumbing.Hash {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.txt"), []byte(content), 0644))
+	_, err := wt.Add("test.txt")
+	require.NoError(t, err)
+	commit, err := wt.Commit(message, &git.CommitOptions{
+		Author:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		Parents: parents,
+	})
+	require.NoError(t, err)
+	return commit
+}
+
+func TestGitRepository_AddedFiles(t *testing.T) {
+	t.Run("Should include introduced notes and exclude notes only moved inside the range", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".release-notes"), 0755))
+		activePath := filepath.Join(dir, ".release-notes", "existing.md")
+		require.NoError(t, os.WriteFile(activePath, []byte("existing note"), 0644))
+		_, err = wt.Add(".release-notes/existing.md")
+		require.NoError(t, err)
+		baseCommit, err := wt.Commit("docs: add existing note", &git.CommitOptions{
+			Author: &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		archiveDir := filepath.Join(dir, ".release-notes", "archive", "v1.1.0")
+		require.NoError(t, os.MkdirAll(archiveDir, 0755))
+		archivedPath := filepath.Join(archiveDir, "existing.md")
+		require.NoError(t, os.Rename(activePath, archivedPath))
+		_, err = wt.Remove(".release-notes/existing.md")
+		require.NoError(t, err)
+		_, err = wt.Add(".release-notes/archive/v1.1.0/existing.md")
+		require.NoError(t, err)
+		newPath := filepath.Join(archiveDir, "new.md")
+		require.NoError(t, os.WriteFile(newPath, []byte("new note"), 0644))
+		_, err = wt.Add(".release-notes/archive/v1.1.0/new.md")
+		require.NoError(t, err)
+		targetCommit, err := wt.Commit("docs: archive release notes", &git.CommitOptions{
+			Author: &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		paths, err := gitRepo.AddedFiles(
+			t.Context(),
+			baseCommit.String()+".."+targetCommit.String(),
+			".release-notes",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []string{".release-notes/archive/v1.1.0/new.md"}, paths)
+	})
+}
+
 func TestGitRepository_CreateBranch(t *testing.T) {
 	t.Run("Should create branch successfully", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)

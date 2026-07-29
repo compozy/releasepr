@@ -16,7 +16,10 @@ type commandExecutor func(ctx context.Context, name string, args ...string) ([]b
 
 const (
 	cliffArgTag        = "--tag"
+	cliffArgStrip      = "--strip"
 	cliffArgUnreleased = "--unreleased"
+	cliffCommand       = "git-cliff"
+	cliffStripAll      = "all"
 )
 
 // cliffService is the implementation of the CliffService interface.
@@ -26,17 +29,43 @@ type cliffService struct {
 }
 
 // NewCliffService creates a new CliffService.
-func NewCliffService() CliffService {
+func NewCliffService() FullCliffService {
 	return &cliffService{
 		timeout: DefaultCliffTimeout,
 	}
 }
 
-func (s *cliffService) runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	if s.executor != nil {
-		return s.executor(ctx, name, args...)
+// GenerateReleaseBodyChangelog renders one release body from its canonical Git range.
+func (s *cliffService) GenerateReleaseBodyChangelog(
+	ctx context.Context,
+	tag string,
+	gitRange string,
+	initialRelease bool,
+) (string, error) {
+	if err := s.sanitizeVersion(tag); err != nil {
+		return "", fmt.Errorf("invalid release tag: %w", err)
 	}
-	return s.executeCommand(ctx, name, args...)
+	if err := domain.ValidateReleaseSelector(gitRange, initialRelease); err != nil {
+		return "", err
+	}
+	args := []string{cliffArgTag, tag, cliffArgStrip, cliffStripAll}
+	if initialRelease {
+		args = append([]string{cliffArgUnreleased}, args...)
+	} else {
+		args = append(args, gitRange)
+	}
+	output, err := s.runCommand(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
+	}
+	return s.validateChangelogOutput(output)
+}
+
+func (s *cliffService) runCommand(ctx context.Context, args ...string) ([]byte, error) {
+	if s.executor != nil {
+		return s.executor(ctx, cliffCommand, args...)
+	}
+	return s.executeCommand(ctx, cliffCommand, args...)
 }
 
 // sanitizeTag validates and sanitizes a git tag to prevent command injection.
@@ -135,7 +164,7 @@ func (s *cliffService) CalculateNextVersion(ctx context.Context, latestTag strin
 	// same tag being echoed back.  Therefore we only need --bumped-version.
 	args := []string{"--bumped-version"}
 
-	output, err := s.runCommand(ctx, "git-cliff", args...)
+	output, err := s.runCommand(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute git-cliff: %w", err)
 	}
@@ -170,7 +199,7 @@ func (s *cliffService) changelogArgs(version, mode string) ([]string, error) {
 		if version == "" {
 			return nil, fmt.Errorf("version required for release mode")
 		}
-		return []string{cliffArgUnreleased, cliffArgTag, version, "--strip", "all"}, nil
+		return []string{cliffArgUnreleased, cliffArgTag, version, cliffArgStrip, cliffStripAll}, nil
 	default:
 		return []string{cliffArgUnreleased}, nil
 	}
@@ -200,7 +229,7 @@ func (s *cliffService) GenerateChangelog(ctx context.Context, version, mode stri
 	if err != nil {
 		return "", err
 	}
-	output, err := s.runCommand(ctx, "git-cliff", args...)
+	output, err := s.runCommand(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
 	}
@@ -213,7 +242,7 @@ func (s *cliffService) GenerateFullChangelog(ctx context.Context, version string
 	if err != nil {
 		return "", err
 	}
-	output, err := s.runCommand(ctx, "git-cliff", args...)
+	output, err := s.runCommand(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute git-cliff: %w", err)
 	}

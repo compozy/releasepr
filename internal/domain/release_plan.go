@@ -22,6 +22,9 @@ type ReleasePlan struct {
 	Commit             string         `json:"commit"`
 	Version            string         `json:"version"`
 	Tag                string         `json:"tag"`
+	PreviousTag        string         `json:"previous_tag"`
+	GitRange           string         `json:"git_range"`
+	InitialRelease     bool           `json:"initial_release"`
 	Channel            ReleaseChannel `json:"channel"`
 	GitHubPrerelease   bool           `json:"github_prerelease"`
 	GitHubMakeLatest   bool           `json:"github_make_latest"`
@@ -48,7 +51,13 @@ func ParseReleaseChannel(value string) (ReleaseChannel, error) {
 }
 
 // NewReleasePlan validates explicit release identity and derives its publication policy.
-func NewReleasePlan(ref, commit, version string, channel ReleaseChannel) (*ReleasePlan, error) {
+func NewReleasePlan(
+	ref string,
+	commit string,
+	version string,
+	previousTag string,
+	channel ReleaseChannel,
+) (*ReleasePlan, error) {
 	if err := validateReleaseRef(ref); err != nil {
 		return nil, err
 	}
@@ -66,11 +75,18 @@ func NewReleasePlan(ref, commit, version string, channel ReleaseChannel) (*Relea
 	if err != nil {
 		return nil, err
 	}
+	gitRange, err := BuildReleaseGitRange(previousTag, commit)
+	if err != nil {
+		return nil, err
+	}
 	return &ReleasePlan{
 		Ref:                ref,
 		Commit:             commit,
 		Version:            version,
 		Tag:                "v" + version,
+		PreviousTag:        previousTag,
+		GitRange:           gitRange,
+		InitialRelease:     previousTag == "",
 		Channel:            channel,
 		GitHubPrerelease:   policy.githubPrerelease,
 		GitHubMakeLatest:   policy.githubMakeLatest,

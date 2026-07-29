@@ -34,6 +34,13 @@ func (uc *CollectReleaseNotesUseCase) Execute(
 	if err != nil {
 		return nil, err
 	}
+	return uc.collectPaths(ctx, paths)
+}
+
+func (uc *CollectReleaseNotesUseCase) collectPaths(
+	ctx context.Context,
+	paths []string,
+) (*domain.ReleaseNotesCollection, error) {
 	notesByType := make(map[domain.ReleaseNoteType][]domain.ReleaseNote)
 	warnings := []string{}
 	log := logger.FromContext(ctx).Named("usecase.collect_release_notes")
@@ -86,7 +93,7 @@ func (uc *CollectReleaseNotesUseCase) releaseNotePaths(version string) ([]string
 			return nil, fmt.Errorf("failed to read release notes directory %s: %w", directory, err)
 		}
 		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != releaseNoteMarkdownExt {
 				continue
 			}
 			paths = append(paths, filepath.Join(directory, entry.Name()))

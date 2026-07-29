@@ -17,12 +17,21 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should create the beta publication plan", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("refs/heads/main", "abc123", "0.3.0-beta.1", ReleaseChannelBeta)
+		plan, err := NewReleasePlan(
+			"refs/heads/main",
+			"abc123",
+			"0.3.0-beta.1",
+			"v0.3.0-beta.0",
+			ReleaseChannelBeta,
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "refs/heads/main", plan.Ref)
 		assert.Equal(t, "abc123", plan.Commit)
 		assert.Equal(t, "0.3.0-beta.1", plan.Version)
 		assert.Equal(t, "v0.3.0-beta.1", plan.Tag)
+		assert.Equal(t, "v0.3.0-beta.0", plan.PreviousTag)
+		assert.Equal(t, "v0.3.0-beta.0..abc123", plan.GitRange)
+		assert.False(t, plan.InitialRelease)
 		assert.Equal(t, ReleaseChannelBeta, plan.Channel)
 		assert.True(t, plan.GitHubPrerelease)
 		assert.False(t, plan.GitHubMakeLatest)
@@ -34,7 +43,7 @@ func TestNewReleasePlan(t *testing.T) {
 		t.Run("Should create the stable publication plan for "+string(channel), func(t *testing.T) {
 			t.Parallel()
 
-			plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0", channel)
+			plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0", "v0.2.15", channel)
 			require.NoError(t, err)
 			assert.False(t, plan.GitHubPrerelease)
 			assert.True(t, plan.GitHubMakeLatest)
@@ -46,7 +55,7 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should reject a version with the tag prefix", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("HEAD", "abc123", "v0.3.0-beta.1", ReleaseChannelBeta)
+		plan, err := NewReleasePlan("HEAD", "abc123", "v0.3.0-beta.1", "", ReleaseChannelBeta)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "must not start with v")
@@ -55,7 +64,7 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should reject a non-strict semantic version", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("HEAD", "abc123", "0.3", ReleaseChannelStable)
+		plan, err := NewReleasePlan("HEAD", "abc123", "0.3", "", ReleaseChannelStable)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "strict semantic version")
@@ -64,7 +73,7 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should require beta prerelease semantics for the beta channel", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0", ReleaseChannelBeta)
+		plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0", "", ReleaseChannelBeta)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "beta channel")
@@ -73,7 +82,7 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should reject a beta prerelease on a stable channel", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0-beta.1", ReleaseChannelStable)
+		plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0-beta.1", "", ReleaseChannelStable)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "stable channel")
@@ -91,9 +100,28 @@ func TestNewReleasePlan(t *testing.T) {
 	t.Run("Should reject a ref containing an output control character", func(t *testing.T) {
 		t.Parallel()
 
-		plan, err := NewReleasePlan("main\nforged=true", "abc123", "0.3.0", ReleaseChannelStable)
+		plan, err := NewReleasePlan("main\nforged=true", "abc123", "0.3.0", "", ReleaseChannelStable)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "control characters")
+	})
+
+	t.Run("Should leave the range empty for the first release", func(t *testing.T) {
+		t.Parallel()
+
+		plan, err := NewReleasePlan("HEAD", "abc123", "0.1.0", "", ReleaseChannelStable)
+		require.NoError(t, err)
+		assert.Empty(t, plan.PreviousTag)
+		assert.Empty(t, plan.GitRange)
+		assert.True(t, plan.InitialRelease)
+	})
+
+	t.Run("Should reject a non-semantic previous tag", func(t *testing.T) {
+		t.Parallel()
+
+		plan, err := NewReleasePlan("HEAD", "abc123", "0.3.0", "latest", ReleaseChannelStable)
+		require.Error(t, err)
+		assert.Nil(t, plan)
+		assert.ErrorContains(t, err, "previous release tag")
 	})
 }

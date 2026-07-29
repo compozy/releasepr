@@ -24,7 +24,7 @@ type container struct {
 	fsRepo   repository.FileSystemRepository
 	gitRepo  repository.GitRepository
 	ghRepo   repository.GithubRepository
-	cliffSvc service.CliffService
+	cliffSvc service.FullCliffService
 	npmSvc   service.NpmService
 }
 
@@ -150,6 +150,11 @@ func addOrchestratorCommands(ctx context.Context, c *container) error {
 	)
 	rootCmd.AddCommand(NewPRReleaseCmd(prOrch))
 	rootCmd.AddCommand(NewPlanCmd(usecase.NewPlanReleaseUseCase(gitExtRepo)))
+	rootCmd.AddCommand(NewReleaseBodyCmd(usecase.NewRenderReleaseBodyUseCase(
+		gitExtRepo,
+		c.fsRepo,
+		c.cliffSvc,
+	)))
 
 	// Create Dry Run orchestrator
 	goreleaserSvc := service.NewGoReleaserService()

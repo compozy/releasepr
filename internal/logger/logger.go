@@ -22,6 +22,7 @@ type contextKey struct{}
 const (
 	formatJSON    = "json"
 	formatConsole = "console"
+	stderrPath    = "stderr"
 )
 
 func New(cfg Config) (*zap.Logger, error) {
@@ -51,8 +52,8 @@ func buildZapConfig(cfg Config) (zap.Config, error) {
 	zapCfg.Encoding = format
 	encoder := buildEncoderConfig(format)
 	zapCfg.EncoderConfig = encoder
-	zapCfg.OutputPaths = []string{"stdout"}
-	zapCfg.ErrorOutputPaths = []string{"stderr"}
+	zapCfg.OutputPaths = []string{stderrPath}
+	zapCfg.ErrorOutputPaths = []string{stderrPath}
 	return zapCfg, nil
 }
 

@@ -30,7 +30,13 @@ func (s *releasePlannerStub) Execute(_ context.Context, input usecase.PlanReleas
 func TestNewPlanCmd(t *testing.T) {
 	t.Parallel()
 
-	plan, err := domain.NewReleasePlan("main", "0123456789abcdef", "0.3.0-beta.1", domain.ReleaseChannelBeta)
+	plan, err := domain.NewReleasePlan(
+		"main",
+		"0123456789abcdef",
+		"0.3.0-beta.1",
+		"v0.3.0-beta.0",
+		domain.ReleaseChannelBeta,
+	)
 	require.NoError(t, err)
 
 	t.Run("Should emit the release plan as JSON", func(t *testing.T) {
@@ -52,6 +58,9 @@ func TestNewPlanCmd(t *testing.T) {
 			"commit":"0123456789abcdef",
 			"version":"0.3.0-beta.1",
 			"tag":"v0.3.0-beta.1",
+			"previous_tag":"v0.3.0-beta.0",
+			"git_range":"v0.3.0-beta.0..0123456789abcdef",
+			"initial_release":false,
 			"channel":"beta",
 			"github_prerelease":true,
 			"github_make_latest":false,
@@ -78,6 +87,9 @@ func TestNewPlanCmd(t *testing.T) {
 			"release_commit=0123456789abcdef\n"+
 			"release_version=0.3.0-beta.1\n"+
 			"release_tag=v0.3.0-beta.1\n"+
+			"release_previous_tag=v0.3.0-beta.0\n"+
+			"release_git_range=v0.3.0-beta.0..0123456789abcdef\n"+
+			"release_initial=false\n"+
 			"release_channel=beta\n"+
 			"github_prerelease=true\n"+
 			"github_make_latest=false\n"+

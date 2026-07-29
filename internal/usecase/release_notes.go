@@ -7,6 +7,7 @@ const (
 	releaseNotesArchiveDirName = "archive"
 	releaseNotesOutputFile     = "RELEASE_NOTES.md"
 	releaseNotesGitKeepFile    = ".gitkeep"
+	releaseNoteMarkdownExt     = ".md"
 	defaultReleaseNoteSlug     = "release-note"
 	releaseNotesTemplateBody   = "<!-- Write your release note here. Supports full markdown including code blocks. -->"
 )

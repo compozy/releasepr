@@ -68,6 +68,67 @@ func TestCliffService_GenerateChangelog(t *testing.T) {
 	})
 }
 
+func TestCliffService_GenerateReleaseBodyChangelog(t *testing.T) {
+	t.Run("Should pass the exact git range to git cliff", func(t *testing.T) {
+		command := &capturedCommand{}
+		svc := &cliffService{
+			executor: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				command.name = name
+				command.args = append([]string(nil), args...)
+				return []byte("## 1.2.3-beta.2"), nil
+			},
+		}
+		changelog, err := svc.GenerateReleaseBodyChangelog(
+			t.Context(),
+			"v1.2.3-beta.2",
+			"v1.2.3-beta.1..abcdef",
+			false,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "## 1.2.3-beta.2", changelog)
+		assert.Equal(t, "git-cliff", command.name)
+		assert.Equal(t, []string{
+			"--tag", "v1.2.3-beta.2",
+			"--strip", "all",
+			"v1.2.3-beta.1..abcdef",
+		}, command.args)
+	})
+
+	t.Run("Should reject a malformed git range", func(t *testing.T) {
+		svc := &cliffService{}
+		changelog, err := svc.GenerateReleaseBodyChangelog(
+			t.Context(),
+			"v1.2.3-beta.2",
+			"--output=forged",
+			false,
+		)
+		require.Error(t, err)
+		assert.Empty(t, changelog)
+		assert.ErrorContains(t, err, "invalid git range")
+	})
+	t.Run("Should require explicit initial-release mode when the range is empty", func(t *testing.T) {
+		svc := &cliffService{}
+		changelog, err := svc.GenerateReleaseBodyChangelog(t.Context(), "v1.0.0", "", false)
+		require.Error(t, err)
+		assert.Empty(t, changelog)
+		assert.ErrorContains(t, err, "initial release")
+	})
+	t.Run("Should use unreleased history only in explicit initial-release mode", func(t *testing.T) {
+		command := &capturedCommand{}
+		svc := &cliffService{
+			executor: func(_ context.Context, name string, args ...string) ([]byte, error) {
+				command.name = name
+				command.args = append([]string(nil), args...)
+				return []byte("## 1.0.0"), nil
+			},
+		}
+		changelog, err := svc.GenerateReleaseBodyChangelog(t.Context(), "v1.0.0", "", true)
+		require.NoError(t, err)
+		assert.Equal(t, "## 1.0.0", changelog)
+		assert.Equal(t, []string{"--unreleased", "--tag", "v1.0.0", "--strip", "all"}, command.args)
+	})
+}
+
 func TestCliffService_GenerateChangelogIntegration(t *testing.T) {
 	t.Run("Should exclude previous releases from release notes changelog", func(t *testing.T) {
 		requireGitCliff(t)
@@ -81,6 +142,27 @@ func TestCliffService_GenerateChangelogIntegration(t *testing.T) {
 		assert.Contains(t, changelog, "Current release")
 		assert.NotContains(t, changelog, "# Changelog")
 		assert.NotContains(t, changelog, "## 1.0.0")
+		assert.NotContains(t, changelog, "First release")
+	})
+	t.Run("Should render only commits after the previous prerelease tag", func(t *testing.T) {
+		requireGitCliff(t)
+		dir := t.TempDir()
+		initChangelogFixture(t, dir)
+		runGit(t, dir, "tag", "v1.1.0-beta.1")
+		writeFixtureFile(t, dir, "third")
+		runGit(t, dir, "add", "fixture.txt")
+		runGit(t, dir, "commit", "-m", "fix: second beta only")
+		t.Chdir(dir)
+		svc := NewCliffService()
+		changelog, err := svc.GenerateReleaseBodyChangelog(
+			t.Context(),
+			"v1.1.0-beta.2",
+			"v1.1.0-beta.1..HEAD",
+			false,
+		)
+		require.NoError(t, err)
+		assert.Contains(t, changelog, "Second beta only")
+		assert.NotContains(t, changelog, "Current release")
 		assert.NotContains(t, changelog, "First release")
 	})
 }

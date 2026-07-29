@@ -12,6 +12,7 @@ type ReleasePlanGitRepository interface {
 	ResolveRevision(ctx context.Context, ref string) (string, error)
 	GetHeadCommit(ctx context.Context) (string, error)
 	ReleaseTagExists(ctx context.Context, tag string) (bool, error)
+	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool) (string, error)
 }
 
 // PlanReleaseInput contains the explicit operator-provided release identity.
@@ -49,7 +50,12 @@ func (uc *PlanReleaseUseCase) Execute(ctx context.Context, input PlanReleaseInpu
 			headCommit,
 		)
 	}
-	plan, err := domain.NewReleasePlan(input.Ref, resolvedCommit, input.Version, input.Channel)
+	includePrereleases := input.Channel == domain.ReleaseChannelBeta
+	previousTag, err := uc.gitRepo.PreviousReleaseTag(ctx, resolvedCommit, includePrereleases)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve previous release tag: %w", err)
+	}
+	plan, err := domain.NewReleasePlan(input.Ref, resolvedCommit, input.Version, previousTag, input.Channel)
 	if err != nil {
 		return nil, err
 	}
