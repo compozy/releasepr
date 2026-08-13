@@ -1,7 +1,7 @@
-## 0.0.27 - 2026-08-13
+## 0.0.28 - 2026-08-13
 
 
 
 ### 🐛 Bug Fixes
 
-- Generate semantic release pr titles
+- Use conventional release pr titles
