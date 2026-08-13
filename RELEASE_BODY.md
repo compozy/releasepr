@@ -1,7 +1,7 @@
-## 0.0.25 - 2026-07-29
+## 0.0.26 - 2026-08-13
 
 
 
 ### 🐛 Bug Fixes
 
-- Scope explicit release bodies to planned ranges (#14)
+- Allow verified release tag recovery
