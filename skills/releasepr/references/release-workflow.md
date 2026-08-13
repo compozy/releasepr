@@ -46,7 +46,7 @@ dispatch input).
 ## What triggers the dry-run job
 
 The dry-run job runs when a pull request whose title starts with
-`release: Release ` or `ci(release): Release ` is opened/synchronized/reopened
+`release: release ` or `ci(release): release ` is opened/synchronized/reopened
 against the default branch, or on manual dispatch with mode `dry-run` (passing
 `head_ref` and `pr_number`).
 
@@ -64,7 +64,7 @@ or `ci(release):` — i.e. the release PR being merged. The consumer's release
 job (not pr-release) then:
 
 1. Derives the version with `git cliff --bumped-version` (fallback: parse it
-   from the commit subject `Release vX.Y.Z`).
+   from the commit subject `release vX.Y.Z`).
 2. Creates and pushes an annotated tag `vX.Y.Z`.
 3. Runs GoReleaser with
    `--release-notes=RELEASE_BODY.md`,
@@ -112,7 +112,7 @@ these values with `git describe` in the consuming workflow.
 ## Branch and PR naming
 
 - Release branch: `release/vMAJOR.MINOR.PATCH`.
-- Release PR title: `release: Release vX.Y.Z` (or `ci(release): Release vX.Y.Z`).
+- Release PR title: `release: release vX.Y.Z` (or `ci(release): release vX.Y.Z`).
 - These exact prefixes are matched by the CI `if:` conditions; renaming them
   breaks the dry-run and production-release triggers.
 

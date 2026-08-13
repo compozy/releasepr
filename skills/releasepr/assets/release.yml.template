@@ -77,13 +77,13 @@ jobs:
           INITIAL_VERSION: ${{ env.INITIAL_VERSION }}
         run: go run "${{ env.PR_RELEASE_MODULE }}" pr-release --force --enable-rollback --ci-output
 
-  # Validate the release PR (title starts with "release: Release ").
+  # Validate the release PR (title starts with "release: release ").
   dry-run:
     name: Dry-Run Release Check
     if: |
       (github.event_name == 'pull_request' &&
-       (startsWith(github.event.pull_request.title, 'release: Release ') ||
-        startsWith(github.event.pull_request.title, 'ci(release): Release '))) ||
+       (startsWith(github.event.pull_request.title, 'release: release ') ||
+        startsWith(github.event.pull_request.title, 'ci(release): release '))) ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
     runs-on: ubuntu-latest
     steps:

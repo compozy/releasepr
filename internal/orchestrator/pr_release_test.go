@@ -354,7 +354,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// tools/* updates removed
 		gitRepo.On("Commit", mock.Anything, "release: prepare release v1.1.0").Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
-		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "release: Release v1.1.0",
+		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "release: release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
 				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Features")
 			}),
@@ -433,7 +433,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 			mock.Anything,
 			branchName,
 			"main",
-			"release: Release v1.1.0",
+			"release: release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
 				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Fixes")
 			}),

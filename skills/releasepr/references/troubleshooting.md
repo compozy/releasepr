@@ -15,7 +15,7 @@ Match the exact error or symptom to a row before proposing a fix.
 | `release_artifacts[i].add must include at least one path or glob` / `path must be repository-relative` / `path cannot contain traversal` | Missing/invalid `add` entry. | Provide ≥ 1 repo-relative path/glob, no absolute paths, no `..`. |
 | `release_artifacts[i].timeout_seconds must be between 1 and 3600` | Out-of-range timeout. | Use 1–3600, or omit (`0` = unset). |
 | `config validation failed: invalid log_level` / `invalid log_format` | Value outside the allowed set. | `log_level` ∈ debug/info/warn/error; `log_format` ∈ json/console. |
-| Dry-run CI job never runs on the release PR | PR title prefix not matched. | Keep the title `release: Release vX.Y.Z` or `ci(release): Release vX.Y.Z`; do not rename the release branch pattern. See `release-workflow.md`. |
+| Dry-run CI job never runs on the release PR | PR title prefix not matched. | Keep the title `release: release vX.Y.Z` or `ci(release): release vX.Y.Z`; do not rename the release branch pattern. See `release-workflow.md`. |
 | Production release never fires after merge | Merge commit subject not `release:`/`ci(release):`, or pushed to a non-default branch. | Merge the release PR so the release commit lands on the default branch with the expected subject prefix. |
 | Release-PR job did not run on a normal push | Head commit was a skipped kind (bot, `release:`, `ci(release):`, `Merge pull request`). | Expected by design. Push a regular conventional commit, or dispatch the workflow with mode `release-pr`. |
 | Follow-up workflows not dispatched from the release-PR job | Default `GITHUB_TOKEN` cannot trigger other workflows. | Use a dedicated `RELEASE_TOKEN` PAT/app token for that job. |

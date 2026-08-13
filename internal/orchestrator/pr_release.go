@@ -457,7 +457,7 @@ func (o *PRReleaseOrchestrator) createPullRequest(
 	if err != nil {
 		return fmt.Errorf("failed to prepare PR body: %w", err)
 	}
-	title := fmt.Sprintf("release: Release %s", version)
+	title := releasePullRequestTitle(version)
 	labels := []string{releasePRLabelPending, releasePRLabelAutomated}
 	// Create/Update PR with retry for network failures
 	return retry.Do(
@@ -467,6 +467,10 @@ func (o *PRReleaseOrchestrator) createPullRequest(
 			return o.githubRepo.CreateOrUpdatePR(ctx, branchName, "main", title, body, labels)
 		},
 	)
+}
+
+func releasePullRequestTitle(version string) string {
+	return fmt.Sprintf("release: release %s", version)
 }
 
 // executeWithSaga runs the workflow with saga-based rollback support
@@ -960,7 +964,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				o.logger(ctx).Error("Failed to prepare PR body", zap.Error(err))
 				return nil, fmt.Errorf("failed to prepare PR body: %w", err)
 			}
-			title := fmt.Sprintf("release: Release %s", wctx.version)
+			title := releasePullRequestTitle(wctx.version)
 			labels := []string{releasePRLabelPending, releasePRLabelAutomated}
 			o.logger(ctx).Info("Creating or updating pull request",
 				zap.String("branch", wctx.branchName),
