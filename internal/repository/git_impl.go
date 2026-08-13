@@ -28,7 +28,7 @@ const gitOriginRemoteName = "origin"
 
 // NewGitRepository creates a new GitRepository.
 func NewGitRepository() (GitRepository, error) {
-	repo, err := git.PlainOpen(".")
+	repo, err := openGitRepository()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
@@ -37,7 +37,7 @@ func NewGitRepository() (GitRepository, error) {
 
 // NewGitExtendedRepository creates a repository with all orchestration operations.
 func NewGitExtendedRepository() (GitOrchestrationRepository, error) {
-	repo, err := git.PlainOpen(".")
+	repo, err := openGitRepository()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
@@ -46,7 +46,7 @@ func NewGitExtendedRepository() (GitOrchestrationRepository, error) {
 
 // NewGitExtendedRepositoryWithTimeout creates an orchestration repository with custom timeout.
 func NewGitExtendedRepositoryWithTimeout(timeoutMinutes int) (GitOrchestrationRepository, error) {
-	repo, err := git.PlainOpen(".")
+	repo, err := openGitRepository()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}

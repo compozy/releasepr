@@ -367,7 +367,9 @@ func applyRepositoryEnvFallbacks(owner, repo string) (string, string) {
 }
 
 func inferRepoFromGitRemote() (string, string, error) {
-	repo, err := git.PlainOpen(".")
+	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return "", "", err
 	}

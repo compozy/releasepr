@@ -25,6 +25,7 @@ type releasePlanner interface {
 // NewPlanCmd creates the explicit release planning command.
 func NewPlanCmd(planner releasePlanner) *cobra.Command {
 	var ref, version, channelValue, outputFormat string
+	var allowExistingTag bool
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Validate and emit an explicit release plan",
@@ -43,9 +44,10 @@ func NewPlanCmd(planner releasePlanner) *cobra.Command {
 				return err
 			}
 			plan, err := planner.Execute(cmd.Context(), usecase.PlanReleaseInput{
-				Ref:     ref,
-				Version: version,
-				Channel: channel,
+				Ref:              ref,
+				Version:          version,
+				Channel:          channel,
+				AllowExistingTag: allowExistingTag,
 			})
 			if err != nil {
 				return err
@@ -57,6 +59,12 @@ func NewPlanCmd(planner releasePlanner) *cobra.Command {
 	cmd.Flags().StringVar(&version, "version", "", "Authoritative unprefixed semantic version")
 	cmd.Flags().StringVar(&channelValue, "channel", "", "Publication channel: beta, stable, or legacy")
 	cmd.Flags().StringVar(&outputFormat, "format", planFormatJSON, "Output format: json or github")
+	cmd.Flags().BoolVar(
+		&allowExistingTag,
+		"allow-existing-tag",
+		false,
+		"Resume only when the existing release tag is annotated and resolves to the planned commit",
+	)
 	return cmd
 }
 

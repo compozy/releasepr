@@ -132,8 +132,8 @@ func TestGitRepository_TagExists(t *testing.T) {
 	})
 }
 
-func TestGitRepository_ReleaseTagExists(t *testing.T) {
-	t.Run("Should return true when tag exists only on origin", func(t *testing.T) {
+func TestGitRepository_ReleaseTagCommit(t *testing.T) {
+	t.Run("Should return a lightweight tag target from origin", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
 		remoteDir := t.TempDir()
 		remoteRepo, err := git.PlainInit(remoteDir, true)
@@ -152,11 +152,44 @@ func TestGitRepository_ReleaseTagExists(t *testing.T) {
 			require.NoError(t, os.Chdir(oldPwd))
 		}()
 		gitRepo := &gitRepository{repo: repo}
-		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		commit, annotated, err := gitRepo.ReleaseTagCommit(t.Context(), "v1.0.0")
 		require.NoError(t, err)
-		assert.True(t, exists)
+		assert.Equal(t, head.Hash().String(), commit)
+		assert.False(t, annotated)
 	})
-	t.Run("Should return false when tag is absent locally and on origin", func(t *testing.T) {
+	t.Run("Should return an annotated tag target from origin", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		remoteDir := t.TempDir()
+		_, err := git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+		_, err = repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
+		require.NoError(t, err)
+		head, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0", head.Hash(), &git.CreateTagOptions{
+			Message: "Release v1.0.0",
+			Tagger:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		require.NoError(t, repo.Push(&git.PushOptions{
+			RemoteName: "origin",
+			RefSpecs: []config.RefSpec{
+				config.RefSpec("refs/tags/v1.0.0:refs/tags/v1.0.0"),
+			},
+		}))
+		oldPwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		defer func() {
+			require.NoError(t, os.Chdir(oldPwd))
+		}()
+		gitRepo := &gitRepository{repo: repo}
+		commit, annotated, err := gitRepo.ReleaseTagCommit(t.Context(), "v1.0.0")
+		require.NoError(t, err)
+		assert.Equal(t, head.Hash().String(), commit)
+		assert.True(t, annotated)
+	})
+	t.Run("Should return an empty state when tag is absent locally and on origin", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
 		remoteDir := t.TempDir()
 		_, err := git.PlainInit(remoteDir, true)
@@ -170,16 +203,51 @@ func TestGitRepository_ReleaseTagExists(t *testing.T) {
 			require.NoError(t, os.Chdir(oldPwd))
 		}()
 		gitRepo := &gitRepository{repo: repo}
-		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		commit, annotated, err := gitRepo.ReleaseTagCommit(t.Context(), "v1.0.0")
 		require.NoError(t, err)
-		assert.False(t, exists)
+		assert.Empty(t, commit)
+		assert.False(t, annotated)
+	})
+	t.Run("Should reject divergent local and origin tags", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		initial, err := repo.Head()
+		require.NoError(t, err)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		target := commitFixtureWithParents(t, dir, wt, "target", "fix: target", initial.Hash())
+		_, err = repo.CreateTag("v1.0.0", target, &git.CreateTagOptions{
+			Message: "Release v1.0.0",
+			Tagger:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		remoteDir := t.TempDir()
+		remoteRepo, err := git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+		require.NoError(t, remoteRepo.Storer.SetReference(
+			plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), initial.Hash()),
+		))
+		_, err = repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
+		require.NoError(t, err)
+		oldPwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		defer func() {
+			require.NoError(t, os.Chdir(oldPwd))
+		}()
+		gitRepo := &gitRepository{repo: repo}
+		commit, annotated, err := gitRepo.ReleaseTagCommit(t.Context(), "v1.0.0")
+		require.Error(t, err)
+		assert.Empty(t, commit)
+		assert.False(t, annotated)
+		assert.ErrorContains(t, err, "differs between the worktree and origin")
 	})
 	t.Run("Should fail closed when origin is unavailable", func(t *testing.T) {
 		_, repo := setupTestRepo(t)
 		gitRepo := &gitRepository{repo: repo}
-		exists, err := gitRepo.ReleaseTagExists(t.Context(), "v1.0.0")
+		commit, annotated, err := gitRepo.ReleaseTagCommit(t.Context(), "v1.0.0")
 		require.Error(t, err)
-		assert.False(t, exists)
+		assert.Empty(t, commit)
+		assert.False(t, annotated)
 		assert.ErrorContains(t, err, "failed to get remote origin")
 	})
 }
@@ -230,10 +298,10 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		_, err = repo.CreateTag("vpreview", targetCommit, nil)
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		betaTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), true)
+		betaTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), true, "")
 		require.NoError(t, err)
 		assert.Equal(t, "v1.1.0-beta.1", betaTag)
-		stableTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), false)
+		stableTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "v1.0.0", stableTag)
 	})
@@ -243,9 +311,30 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		head, err := repo.Head()
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		tag, err := gitRepo.PreviousReleaseTag(t.Context(), head.Hash().String(), true)
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), head.Hash().String(), true, "")
 		require.NoError(t, err)
 		assert.Empty(t, tag)
+	})
+	t.Run("Should exclude the resumed release tag from predecessor selection", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		initial, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0-beta.1", initial.Hash(), nil)
+		require.NoError(t, err)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		target := commitFixtureWithParents(t, dir, wt, "target", "fix: target", initial.Hash())
+		_, err = repo.CreateTag("v1.0.0-beta.2", target, nil)
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(
+			t.Context(),
+			target.String(),
+			true,
+			"v1.0.0-beta.2",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "v1.0.0-beta.1", tag)
 	})
 	t.Run("Should ignore a closer tag from a merged side branch", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
@@ -273,7 +362,7 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		})
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		tag, err := gitRepo.PreviousReleaseTag(t.Context(), mergeCommit.String(), false)
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), mergeCommit.String(), false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "v1.0.0", tag)
 	})

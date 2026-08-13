@@ -17,13 +17,15 @@ import (
 type releasePlanGitRepositoryStub struct {
 	resolvedCommit string
 	headCommit     string
-	tagExists      bool
+	tagCommit      string
+	tagAnnotated   bool
 	previousTag    string
 	resolveErr     error
 	headErr        error
 	tagErr         error
 	previousTagErr error
 	includePreview bool
+	excludeTag     string
 }
 
 func (s *releasePlanGitRepositoryStub) ResolveRevision(context.Context, string) (string, error) {
@@ -34,16 +36,18 @@ func (s *releasePlanGitRepositoryStub) GetHeadCommit(context.Context) (string, e
 	return s.headCommit, s.headErr
 }
 
-func (s *releasePlanGitRepositoryStub) ReleaseTagExists(context.Context, string) (bool, error) {
-	return s.tagExists, s.tagErr
+func (s *releasePlanGitRepositoryStub) ReleaseTagCommit(context.Context, string) (string, bool, error) {
+	return s.tagCommit, s.tagAnnotated, s.tagErr
 }
 
 func (s *releasePlanGitRepositoryStub) PreviousReleaseTag(
 	_ context.Context,
 	_ string,
 	includePrereleases bool,
+	excludeTag string,
 ) (string, error) {
 	s.includePreview = includePrereleases
+	s.excludeTag = excludeTag
 	return s.previousTag, s.previousTagErr
 }
 
@@ -70,6 +74,7 @@ func TestPlanReleaseUseCase_Execute(t *testing.T) {
 		assert.Equal(t, "v0.3.0-beta.0", plan.PreviousTag)
 		assert.Equal(t, "v0.3.0-beta.0..0123456789abcdef", plan.GitRange)
 		assert.True(t, repo.includePreview)
+		assert.Equal(t, "v0.3.0-beta.1", repo.excludeTag)
 	})
 
 	t.Run("Should exclude prereleases when resolving a stable predecessor", func(t *testing.T) {
@@ -109,13 +114,14 @@ func TestPlanReleaseUseCase_Execute(t *testing.T) {
 		assert.ErrorContains(t, err, "does not match HEAD")
 	})
 
-	t.Run("Should reject a tag that already exists", func(t *testing.T) {
+	t.Run("Should reject an existing tag unless recovery is explicit", func(t *testing.T) {
 		t.Parallel()
 
 		repo := &releasePlanGitRepositoryStub{
 			resolvedCommit: "0123456789abcdef",
 			headCommit:     "0123456789abcdef",
-			tagExists:      true,
+			tagCommit:      "0123456789abcdef",
+			tagAnnotated:   true,
 		}
 		uc := NewPlanReleaseUseCase(repo)
 		plan, err := uc.Execute(t.Context(), PlanReleaseInput{
@@ -127,6 +133,66 @@ func TestPlanReleaseUseCase_Execute(t *testing.T) {
 		assert.Nil(t, plan)
 		assert.ErrorContains(t, err, "already exists")
 	})
+
+	t.Run("Should resume an annotated tag that targets the planned commit", func(t *testing.T) {
+		t.Parallel()
+		repo := &releasePlanGitRepositoryStub{
+			resolvedCommit: "0123456789abcdef",
+			headCommit:     "0123456789abcdef",
+			tagCommit:      "0123456789abcdef",
+			tagAnnotated:   true,
+			previousTag:    "v0.2.15",
+		}
+		uc := NewPlanReleaseUseCase(repo)
+		plan, err := uc.Execute(t.Context(), PlanReleaseInput{
+			Ref:              "main",
+			Version:          "0.3.0",
+			Channel:          domain.ReleaseChannelStable,
+			AllowExistingTag: true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "v0.2.15", plan.PreviousTag)
+		assert.Equal(t, "v0.3.0", repo.excludeTag)
+	})
+
+	for _, test := range []struct {
+		name         string
+		tagCommit    string
+		tagAnnotated bool
+		errorText    string
+	}{
+		{
+			name:      "Should reject a lightweight tag during recovery",
+			tagCommit: "0123456789abcdef",
+			errorText: "is not annotated",
+		},
+		{
+			name:         "Should reject an annotated tag at another commit during recovery",
+			tagCommit:    "ffffffffffffffff",
+			tagAnnotated: true,
+			errorText:    "expected 0123456789abcdef",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			repo := &releasePlanGitRepositoryStub{
+				resolvedCommit: "0123456789abcdef",
+				headCommit:     "0123456789abcdef",
+				tagCommit:      test.tagCommit,
+				tagAnnotated:   test.tagAnnotated,
+			}
+			uc := NewPlanReleaseUseCase(repo)
+			plan, err := uc.Execute(t.Context(), PlanReleaseInput{
+				Ref:              "main",
+				Version:          "0.3.0",
+				Channel:          domain.ReleaseChannelStable,
+				AllowExistingTag: true,
+			})
+			require.Error(t, err)
+			assert.Nil(t, plan)
+			assert.ErrorContains(t, err, test.errorText)
+		})
+	}
 
 	t.Run("Should preserve repository errors", func(t *testing.T) {
 		t.Parallel()
@@ -177,7 +243,7 @@ func TestPlanReleaseUseCase_Execute(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Nil(t, plan)
-		assert.ErrorContains(t, err, "failed to prove release tag")
+		assert.ErrorContains(t, err, "failed to inspect release tag")
 		assert.ErrorContains(t, err, "origin unavailable")
 	})
 

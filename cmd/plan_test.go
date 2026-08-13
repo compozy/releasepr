@@ -97,6 +97,20 @@ func TestNewPlanCmd(t *testing.T) {
 			"homebrew_skip_upload=true\n", output.String())
 	})
 
+	t.Run("Should request recovery for an existing verified tag", func(t *testing.T) {
+		t.Parallel()
+		planner := &releasePlannerStub{plan: plan}
+		command := NewPlanCmd(planner)
+		command.SetArgs([]string{
+			"--ref", "main",
+			"--version", "0.3.0-beta.1",
+			"--channel", "beta",
+			"--allow-existing-tag",
+		})
+		require.NoError(t, command.Execute())
+		assert.True(t, planner.input.AllowExistingTag)
+	})
+
 	t.Run("Should require every explicit release input", func(t *testing.T) {
 		t.Parallel()
 

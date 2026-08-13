@@ -29,15 +29,16 @@ deterministically refresh the release PR and it no-ops when nothing changed.
 
 Validates an operator-supplied release ref, version, and channel without
 mutating the repository or publishing. It resolves the ref and requires it to
-equal the checked-out `HEAD`, derives the Git tag exactly once, and rejects the
-plan if that tag already exists locally or on `origin`.
+equal the checked-out `HEAD`, derives the Git tag exactly once, and rejects an
+existing local or `origin` tag unless explicit safe recovery is enabled.
 
-| Flag        | Type   | Default | Behavior |
-| ----------- | ------ | ------- | -------- |
-| `--ref`     | string | required | Git ref or revision that must resolve to `HEAD`. |
-| `--version` | string | required | Strict, unprefixed SemVer such as `0.3.0-beta.1`; a leading `v` is rejected. |
-| `--channel` | string | required | One of `beta`, `stable`, or `legacy`. |
-| `--format`  | string | `json`  | `json` emits the plan object; `github` emits ordered `key=value` lines for `$GITHUB_OUTPUT`. |
+| Flag                   | Type   | Default | Behavior |
+| ---------------------- | ------ | ------- | -------- |
+| `--ref`                | string | required | Git ref or revision that must resolve to `HEAD`. |
+| `--version`            | string | required | Strict, unprefixed SemVer such as `0.3.0-beta.1`; a leading `v` is rejected. |
+| `--channel`            | string | required | One of `beta`, `stable`, or `legacy`. |
+| `--format`             | string | `json`  | `json` emits the plan object; `github` emits ordered `key=value` lines for `$GITHUB_OUTPUT`. |
+| `--allow-existing-tag` | bool   | false   | Resume only when the tag is annotated and resolves to the planned commit. The resumed tag is excluded from predecessor selection. |
 
 The plan also emits `previous_tag`, `git_range`, and `initial_release`.
 `git_range` is
@@ -61,6 +62,7 @@ channel.
 
 ```bash
 pr-release plan --ref main --version 0.3.0-beta.1 --channel beta
+pr-release plan --ref main --version 0.3.0-beta.1 --channel beta --allow-existing-tag
 pr-release plan --ref legacy/v0.2 --version 0.2.16 --channel legacy --format github
 ```
 

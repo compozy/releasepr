@@ -143,6 +143,11 @@ predecessor on the first-parent release line; stable and legacy plans consider
 stable tags only. `initial_release` is true only when that line has no matching
 predecessor.
 
+For an explicit retry after tag creation, add `--allow-existing-tag`. Recovery
+is accepted only when the existing local or remote tag is annotated and
+resolves to the planned commit. The resumed tag is excluded when selecting the
+predecessor. Without the flag, any existing tag remains an error.
+
 For GitHub Actions, write deterministic outputs directly to the step output
 file:
 

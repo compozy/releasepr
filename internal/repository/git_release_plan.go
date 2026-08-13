@@ -18,8 +18,8 @@ import (
 type GitReleasePlanRepository interface {
 	GetHeadCommit(ctx context.Context) (string, error)
 	ResolveRevision(ctx context.Context, ref string) (string, error)
-	ReleaseTagExists(ctx context.Context, tag string) (bool, error)
-	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool) (string, error)
+	ReleaseTagCommit(ctx context.Context, tag string) (commit string, annotated bool, err error)
+	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool, excludeTag string) (string, error)
 }
 
 // GitReleaseBodyRepository exposes read-only Git facts used to render an explicit release body.
@@ -36,43 +36,92 @@ type GitOrchestrationRepository interface {
 
 var _ GitOrchestrationRepository = (*gitRepository)(nil)
 
-// ReleaseTagExists checks if a release tag exists locally or on origin.
-func (r *gitRepository) ReleaseTagExists(ctx context.Context, tag string) (bool, error) {
-	localExists, err := r.TagExists(ctx, tag)
+type releaseTagState struct {
+	commit    string
+	annotated bool
+}
+
+// ReleaseTagCommit returns the target commit and annotation status of a local or origin tag.
+func (r *gitRepository) ReleaseTagCommit(ctx context.Context, tag string) (string, bool, error) {
+	local, err := r.localReleaseTagState(tag)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	if localExists {
-		return true, nil
+	remote, err := r.remoteReleaseTagState(ctx, tag)
+	if err != nil {
+		return "", false, err
 	}
+	if local.commit != "" && remote.commit != "" && local != remote {
+		return "", false, fmt.Errorf("release tag %s differs between the worktree and origin", tag)
+	}
+	if remote.commit != "" {
+		return remote.commit, remote.annotated, nil
+	}
+	return local.commit, local.annotated, nil
+}
+
+func (r *gitRepository) localReleaseTagState(tag string) (releaseTagState, error) {
+	tagRef, err := r.repo.Reference(plumbing.NewTagReferenceName(tag), true)
+	if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return releaseTagState{}, nil
+	}
+	if err != nil {
+		return releaseTagState{}, fmt.Errorf("failed to inspect local release tag %s: %w", tag, err)
+	}
+	commit, err := r.resolveTagCommit(tagRef)
+	if err != nil {
+		return releaseTagState{}, fmt.Errorf("failed to resolve local release tag %s: %w", tag, err)
+	}
+	_, tagObjectErr := r.repo.TagObject(tagRef.Hash())
+	if tagObjectErr != nil && !errors.Is(tagObjectErr, plumbing.ErrObjectNotFound) {
+		return releaseTagState{}, fmt.Errorf("failed to inspect local release tag object %s: %w", tag, tagObjectErr)
+	}
+	return releaseTagState{commit: commit.String(), annotated: tagObjectErr == nil}, nil
+}
+
+func (r *gitRepository) remoteReleaseTagState(ctx context.Context, tag string) (releaseTagState, error) {
 	if _, err := r.repo.Remote(gitOriginRemoteName); err != nil {
-		return false, fmt.Errorf("failed to get remote origin: %w", err)
+		return releaseTagState{}, fmt.Errorf("failed to get remote origin: %w", err)
 	}
 	tagRef := plumbing.NewTagReferenceName(tag)
-	//nolint:gosec // Git is invoked without a shell; the tag is one argument.
-	cmd := exec.CommandContext(
+	output, err := r.runReadOnlyGit(
 		ctx,
-		"git",
 		"ls-remote",
-		"--exit-code",
 		"--tags",
 		gitOriginRemoteName,
 		tagRef.String(),
+		tagRef.String()+"^{}",
 	)
-	cmd.Dir = r.getWorkingDirectory()
-	cmd.Env = append(os.Environ(), r.getGitEnv()...)
-	err = cmd.Run()
-	if err == nil {
-		return true, nil
+	if err != nil {
+		return releaseTagState{}, fmt.Errorf("failed to inspect remote release tag %s: %w", tag, err)
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return false, fmt.Errorf("remote tag check canceled: %w", ctxErr)
+	return parseRemoteReleaseTagState(output, tagRef.String())
+}
+
+func parseRemoteReleaseTagState(output, tagRef string) (releaseTagState, error) {
+	var directHash, peeledHash string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return releaseTagState{}, fmt.Errorf("remote tag output contains a malformed line")
+		}
+		switch fields[1] {
+		case tagRef:
+			directHash = fields[0]
+		case tagRef + "^{}":
+			peeledHash = fields[0]
+		}
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 2 {
-		return false, nil
+	if directHash == "" {
+		return releaseTagState{}, nil
 	}
-	return false, fmt.Errorf("failed to check remote tag %s: %w", tag, err)
+	if peeledHash != "" {
+		return releaseTagState{commit: peeledHash, annotated: true}, nil
+	}
+	return releaseTagState{commit: directHash}, nil
 }
 
 // ResolveRevision resolves a Git revision to its commit SHA.
@@ -92,11 +141,12 @@ func (r *gitRepository) PreviousReleaseTag(
 	ctx context.Context,
 	commit string,
 	includePrereleases bool,
+	excludeTag string,
 ) (string, error) {
 	if _, err := r.ResolveRevision(ctx, commit); err != nil {
 		return "", err
 	}
-	tags, err := r.mergedReleaseTags(ctx, commit, includePrereleases)
+	tags, err := r.mergedReleaseTags(ctx, commit, includePrereleases, excludeTag)
 	if err != nil || len(tags) == 0 {
 		return "", err
 	}
@@ -123,6 +173,7 @@ func (r *gitRepository) mergedReleaseTags(
 	ctx context.Context,
 	commit string,
 	includePrereleases bool,
+	excludeTag string,
 ) ([]string, error) {
 	output, err := r.runReadOnlyGit(ctx, "tag", "--merged", commit, "--list", "v*")
 	if err != nil {
@@ -130,6 +181,9 @@ func (r *gitRepository) mergedReleaseTags(
 	}
 	tags := make([]string, 0)
 	for _, tag := range strings.Fields(output) {
+		if tag == excludeTag {
+			continue
+		}
 		version, parseErr := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
 		if parseErr != nil || !strings.HasPrefix(tag, "v") {
 			continue

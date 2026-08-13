@@ -11,15 +11,16 @@ import (
 type ReleasePlanGitRepository interface {
 	ResolveRevision(ctx context.Context, ref string) (string, error)
 	GetHeadCommit(ctx context.Context) (string, error)
-	ReleaseTagExists(ctx context.Context, tag string) (bool, error)
-	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool) (string, error)
+	ReleaseTagCommit(ctx context.Context, tag string) (commit string, annotated bool, err error)
+	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool, excludeTag string) (string, error)
 }
 
 // PlanReleaseInput contains the explicit operator-provided release identity.
 type PlanReleaseInput struct {
-	Ref     string
-	Version string
-	Channel domain.ReleaseChannel
+	Ref              string
+	Version          string
+	Channel          domain.ReleaseChannel
+	AllowExistingTag bool
 }
 
 // PlanReleaseUseCase proves repository state and returns the canonical release plan.
@@ -50,21 +51,43 @@ func (uc *PlanReleaseUseCase) Execute(ctx context.Context, input PlanReleaseInpu
 			headCommit,
 		)
 	}
-	includePrereleases := input.Channel == domain.ReleaseChannelBeta
-	previousTag, err := uc.gitRepo.PreviousReleaseTag(ctx, resolvedCommit, includePrereleases)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve previous release tag: %w", err)
-	}
-	plan, err := domain.NewReleasePlan(input.Ref, resolvedCommit, input.Version, previousTag, input.Channel)
+	candidate, err := domain.NewReleasePlan(input.Ref, resolvedCommit, input.Version, "", input.Channel)
 	if err != nil {
 		return nil, err
 	}
-	tagExists, err := uc.gitRepo.ReleaseTagExists(ctx, plan.Tag)
+	tagCommit, annotated, err := uc.gitRepo.ReleaseTagCommit(ctx, candidate.Tag)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prove release tag %q is absent: %w", plan.Tag, err)
+		return nil, fmt.Errorf("failed to inspect release tag %q: %w", candidate.Tag, err)
 	}
-	if tagExists {
-		return nil, fmt.Errorf("release tag %q already exists", plan.Tag)
+	if err := validateExistingReleaseTag(
+		candidate.Tag,
+		resolvedCommit,
+		tagCommit,
+		annotated,
+		input.AllowExistingTag,
+	); err != nil {
+		return nil, err
 	}
-	return plan, nil
+	includePrereleases := input.Channel == domain.ReleaseChannelBeta
+	previousTag, err := uc.gitRepo.PreviousReleaseTag(ctx, resolvedCommit, includePrereleases, candidate.Tag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve previous release tag: %w", err)
+	}
+	return domain.NewReleasePlan(input.Ref, resolvedCommit, input.Version, previousTag, input.Channel)
+}
+
+func validateExistingReleaseTag(tag, releaseCommit, tagCommit string, annotated, allowExisting bool) error {
+	if tagCommit == "" {
+		return nil
+	}
+	if !allowExisting {
+		return fmt.Errorf("release tag %q already exists", tag)
+	}
+	if !annotated {
+		return fmt.Errorf("release tag %q exists but is not annotated", tag)
+	}
+	if tagCommit != releaseCommit {
+		return fmt.Errorf("release tag %q resolves to %s, expected %s", tag, tagCommit, releaseCommit)
+	}
+	return nil
 }
