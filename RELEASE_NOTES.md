@@ -1,3 +1,11 @@
+## 0.0.28 - 2026-08-13
+
+
+
+### 🐛 Bug Fixes
+
+- Use conventional release pr titles
+
 ## 0.0.27 - 2026-08-13
 
 
