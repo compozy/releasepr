@@ -101,9 +101,8 @@ Conventional-commit prefixes drive the version bump — wrong prefixes mean wron
 versions or "no changes":
 
 - `fix:` → patch · `feat:` → minor · `feat!:` / `BREAKING CHANGE:` → major.
-- A commit subject starting with `release:` or `ci(release):` merged to the
-  default branch is what triggers the **production release** — do not hand-write
-  such commits.
+- A commit subject starting with `build: release ` merged to the default branch
+  triggers the **production release** — reserve it for generated release PRs.
 - Bot commits and `Merge pull request` commits are skipped by the release-PR job.
 
 **STOP. Read `references/release-notes.md` and `references/release-workflow.md`

@@ -352,9 +352,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("AddFiles", mock.Anything, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, "package-lock.json").Return(nil).Once()
 		// tools/* updates removed
-		gitRepo.On("Commit", mock.Anything, "release: prepare release v1.1.0").Return(nil).Once()
+		gitRepo.On("Commit", mock.Anything, "build: prepare release v1.1.0").Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
-		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "release: release v1.1.0",
+		githubRepo.On("CreateOrUpdatePR", mock.Anything, branchName, "main", "build: release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
 				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Features")
 			}),
@@ -433,7 +433,7 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 			mock.Anything,
 			branchName,
 			"main",
-			"release: release v1.1.0",
+			"build: release v1.1.0",
 			mock.MatchedBy(func(body string) bool {
 				return strings.Contains(body, "Release v1.1.0") && strings.Contains(body, "### Fixes")
 			}),
@@ -1344,7 +1344,7 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		gitRepo.On("AddFiles", ctx, "package.json").Return(nil).Once()
 		gitRepo.On("AddFiles", ctx, "package-lock.json").Return(nil).Once()
 		// no tools files added
-		gitRepo.On("Commit", ctx, "release: prepare release v1.2.0").Return(nil).Once()
+		gitRepo.On("Commit", ctx, "build: prepare release v1.2.0").Return(nil).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 

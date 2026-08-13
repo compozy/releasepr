@@ -22,13 +22,13 @@
    runs `pr-release dry-run` to validate the release end-to-end without
    publishing.
 3. **Production release** — when the release PR merges, the merge commit (whose
-   subject starts with `release:` or `ci(release):`) triggers tagging and a
+   subject starts with `build: release `) triggers tagging and a
    GoReleaser publish.
 
 ## What triggers the release-PR job
 
 On push to the default branch, the job runs **unless** the head commit subject
-starts with `release:`, `ci(release):`, or `Merge pull request`, or the commit
+starts with `build: release ` or `Merge pull request`, or the commit
 author is `github-actions[bot]`. It also runs on manual dispatch with mode
 `release-pr`. This is why ordinary `feat:` / `fix:` commits produce a release PR
 but the release commit itself does not loop.
@@ -46,7 +46,7 @@ dispatch input).
 ## What triggers the dry-run job
 
 The dry-run job runs when a pull request whose title starts with
-`release: release ` or `ci(release): release ` is opened/synchronized/reopened
+`build: release ` is opened/synchronized/reopened
 against the default branch, or on manual dispatch with mode `dry-run` (passing
 `head_ref` and `pr_number`).
 
@@ -59,8 +59,8 @@ just from running `pr-release pr-release`.
 
 ## What triggers the production release
 
-A push to the default branch whose head commit subject starts with `release:`
-or `ci(release):` — i.e. the release PR being merged. The consumer's release
+A push to the default branch whose head commit subject starts with `build: release `
+— i.e. the release PR being merged. The consumer's release
 job (not pr-release) then:
 
 1. Derives the version with `git cliff --bumped-version` (fallback: parse it
@@ -71,8 +71,8 @@ job (not pr-release) then:
    `--release-header-tmpl=.goreleaser.release-header.md.tmpl`,
    `--release-footer-tmpl=.goreleaser.release-footer.md.tmpl`.
 
-Do not hand-author `release:` commits on the default branch — that is the
-trigger that publishes a production release.
+Reserve `build: release ` commits on the default branch for generated release
+PRs — that prefix publishes a production release.
 
 ## Explicit beta, stable, and legacy releases
 
@@ -112,7 +112,7 @@ these values with `git describe` in the consuming workflow.
 ## Branch and PR naming
 
 - Release branch: `release/vMAJOR.MINOR.PATCH`.
-- Release PR title: `release: release vX.Y.Z` (or `ci(release): release vX.Y.Z`).
+- Release PR title: `build: release vX.Y.Z`.
 - These exact prefixes are matched by the CI `if:` conditions; renaming them
   breaks the dry-run and production-release triggers.
 
@@ -131,8 +131,8 @@ these values with `git describe` in the consuming workflow.
 Check in this order:
 1. Were the commits conventional (`feat:`/`fix:`/etc.)? Non-conventional
    commits yield no version bump → no release PR. (`release-notes.md`)
-2. Was the push commit one of the skipped kinds (bot / `release:` /
-   `ci(release):` / `Merge pull request`)? Then the release-PR job did not run
+2. Was the push commit one of the skipped kinds (bot / `build: release ` /
+   `Merge pull request`)? Then the release-PR job did not run
    by design.
 3. Did owner/repo and token resolve? (`configuration.md`,
    `troubleshooting.md`)

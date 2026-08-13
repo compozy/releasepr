@@ -359,7 +359,7 @@ func (o *PRReleaseOrchestrator) commitChanges(ctx context.Context, version strin
 		}
 	}
 	// Commit if there are changes
-	message := fmt.Sprintf("release: prepare release %s", version)
+	message := fmt.Sprintf("build: prepare release %s", version)
 	return o.gitRepo.Commit(ctx, message)
 }
 
@@ -470,7 +470,7 @@ func (o *PRReleaseOrchestrator) createPullRequest(
 }
 
 func releasePullRequestTitle(version string) string {
-	return fmt.Sprintf("release: release %s", version)
+	return fmt.Sprintf("build: release %s", version)
 }
 
 // executeWithSaga runs the workflow with saga-based rollback support

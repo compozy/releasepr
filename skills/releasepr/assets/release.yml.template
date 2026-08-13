@@ -46,8 +46,7 @@ jobs:
     if: |
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
-       !startsWith(github.event.head_commit.message, 'release:') &&
-       !startsWith(github.event.head_commit.message, 'ci(release):') &&
+       !startsWith(github.event.head_commit.message, 'build: release ') &&
        !startsWith(github.event.head_commit.message, 'Merge pull request') &&
        github.event.head_commit.author.name != 'github-actions[bot]') ||
       (github.event_name == 'workflow_dispatch' &&
@@ -77,13 +76,12 @@ jobs:
           INITIAL_VERSION: ${{ env.INITIAL_VERSION }}
         run: go run "${{ env.PR_RELEASE_MODULE }}" pr-release --force --enable-rollback --ci-output
 
-  # Validate the release PR (title starts with "release: release ").
+  # Validate the release PR (title starts with "build: release ").
   dry-run:
     name: Dry-Run Release Check
     if: |
       (github.event_name == 'pull_request' &&
-       (startsWith(github.event.pull_request.title, 'release: release ') ||
-        startsWith(github.event.pull_request.title, 'ci(release): release '))) ||
+       startsWith(github.event.pull_request.title, 'build: release ')) ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
     runs-on: ubuntu-latest
     steps:
@@ -110,7 +108,7 @@ jobs:
         run: go run "${{ env.PR_RELEASE_MODULE }}" dry-run --ci-output
 
   # Production release: runs when the release PR merges (commit subject
-  # starts with "release:" / "ci(release):"). pr-release does NOT tag or
+  # starts with "build: release "). pr-release does NOT tag or
   # publish — wire your own tag + publisher here (e.g. git-cliff
   # --bumped-version to derive the tag, then GoReleaser / npm publish using
   # RELEASE_BODY.md as the GitHub Release body).
@@ -120,8 +118,7 @@ jobs:
   #   if: |
   #     github.event_name == 'push' &&
   #     github.ref == 'refs/heads/main' &&
-  #     (startsWith(github.event.head_commit.message, 'release:') ||
-  #      startsWith(github.event.head_commit.message, 'ci(release):'))
+  #     startsWith(github.event.head_commit.message, 'build: release ')
   #   runs-on: ubuntu-latest
   #   steps:
   #     - uses: actions/checkout@v4

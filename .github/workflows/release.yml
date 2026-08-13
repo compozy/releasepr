@@ -69,8 +69,7 @@ jobs:
     if: |
       (github.event_name == 'push' &&
        github.ref == 'refs/heads/main' &&
-       !startsWith(github.event.head_commit.message, 'release:') &&
-       !startsWith(github.event.head_commit.message, 'ci(release):') &&
+       !startsWith(github.event.head_commit.message, 'build: release ') &&
        !startsWith(github.event.head_commit.message, 'Merge pull request') &&
        github.event.head_commit.author.name != 'github-actions[bot]') ||
       (github.event_name == 'workflow_dispatch' &&
@@ -156,8 +155,7 @@ jobs:
       (
         github.event_name == 'pull_request' &&
         (
-          startsWith(github.event.pull_request.title, 'release: Release ') ||
-          startsWith(github.event.pull_request.title, 'ci(release): Release ')
+          startsWith(github.event.pull_request.title, 'build: release ')
         )
       ) ||
       (
@@ -206,8 +204,7 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       (
-        startsWith(github.event.head_commit.message, 'release:') ||
-        startsWith(github.event.head_commit.message, 'ci(release):')
+        startsWith(github.event.head_commit.message, 'build: release ')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -254,7 +251,7 @@ jobs:
           else
             echo "Could not get version from git-cliff. Got: $VERSION"
             echo "Fallback: Extract from commit message"
-            VERSION=$(git log -1 --pretty=format:"%s" | sed -E 's/.*Release v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+            VERSION=$(git log -1 --pretty=format:"%s" | sed -E 's/.*release v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
             if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               git config user.name "github-actions[bot]"
               git config user.email "github-actions[bot]@users.noreply.github.com"

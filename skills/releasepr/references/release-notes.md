@@ -15,9 +15,9 @@ using `git-cliff` (config: `cliff.toml` in the repo). Use Conventional Commits:
 If no commit since the last tag warrants a bump, no release PR is produced.
 Force a release anyway with `pr-release pr-release --force`.
 
-Never hand-write a commit whose subject starts with `release:` or
-`ci(release):` on the default branch — that prefix triggers the production
-release job (see `release-workflow.md`).
+Reserve commits whose subject starts with `build: release ` on the default
+branch for generated release PRs — that prefix triggers the production release
+job (see `release-workflow.md`).
 
 ## Custom release notes with `add-note`
 
