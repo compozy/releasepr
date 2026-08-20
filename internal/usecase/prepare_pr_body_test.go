@@ -1,8 +1,10 @@
 package usecase
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/compozy/releasepr/internal/domain"
 	"github.com/stretchr/testify/assert"
@@ -10,6 +12,78 @@ import (
 )
 
 func TestPreparePRBodyUseCase_Execute(t *testing.T) {
+	t.Run("Should preserve the exact body when it fits", func(t *testing.T) {
+		t.Parallel()
+		uc := &PreparePRBodyUseCase{}
+		version, err := domain.NewVersion("v1.0.0")
+		require.NoError(t, err)
+		release := &domain.Release{
+			Version:      version,
+			Changelog:    "### Features\n- New feature",
+			ReleaseNotes: "### Release Notes\n\n#### Highlights\n\n##### Shared layout package\nMore details here.",
+		}
+		body, err := uc.Execute(t.Context(), release)
+		require.NoError(t, err)
+		assert.Equal(t, `
+## Release v1.0.0
+
+This PR prepares the release of version v1.0.0.
+
+### Changelog
+
+### Features
+- New feature
+
+### Release Notes
+
+#### Highlights
+
+##### Shared layout package
+More details here.
+`, body)
+	})
+	t.Run("Should bound an oversized body while identifying every release note", func(t *testing.T) {
+		t.Parallel()
+		uc := &PreparePRBodyUseCase{}
+		version, err := domain.NewVersion("v0.3.0")
+		require.NoError(t, err)
+		var releaseNotes strings.Builder
+		titles := make([]string, 0, 51)
+		for index := 1; index <= 51; index++ {
+			title := fmt.Sprintf("Release note %02d", index)
+			titles = append(titles, title)
+			fmt.Fprintf(&releaseNotes, "##### %s\n%s\n\n",
+				title,
+				strings.Repeat("Detailed release note content. ", 55))
+		}
+		release := &domain.Release{
+			Version:      version,
+			Changelog:    strings.Repeat("- fix: release change\n", 250),
+			ReleaseNotes: releaseNotes.String(),
+		}
+		body, err := uc.Execute(t.Context(), release)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, utf8.RuneCountInString(body), 65_536)
+		assert.Contains(t, body, "RELEASE_BODY.md")
+		assert.Contains(t, body, "RELEASE_NOTES.md")
+		for _, title := range titles {
+			assert.Contains(t, body, title)
+		}
+	})
+	t.Run("Should bound a changelog that exceeds the pull request limit", func(t *testing.T) {
+		t.Parallel()
+		uc := &PreparePRBodyUseCase{}
+		version, err := domain.NewVersion("v1.0.0")
+		require.NoError(t, err)
+		release := &domain.Release{
+			Version:   version,
+			Changelog: strings.Repeat("界", 65_537),
+		}
+		body, err := uc.Execute(t.Context(), release)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, utf8.RuneCountInString(body), 65_536)
+		assert.Contains(t, body, "RELEASE_BODY.md")
+	})
 	t.Run("Should prepare PR body with release information", func(t *testing.T) {
 		uc := &PreparePRBodyUseCase{}
 		version, _ := domain.NewVersion("v1.0.0")

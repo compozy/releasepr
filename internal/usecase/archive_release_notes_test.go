@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -176,6 +177,41 @@ func TestArchiveReleaseNotesUseCase_Execute(t *testing.T) {
 }
 
 func TestParseArchiveReleaseNotesResult(t *testing.T) {
+	t.Run("Should parse rollback data produced in process", func(t *testing.T) {
+		t.Parallel()
+		expected := ArchiveReleaseNotesResult{
+			Moves: []ArchivedReleaseNoteMove{
+				{
+					From: ".release-notes/a.md",
+					To:   ".release-notes/archive/v1.2.3/a.md",
+				},
+			},
+			GitKeepCreated: true,
+		}
+		result, err := ParseArchiveReleaseNotesResult(expected.ToRollbackData())
+		require.NoError(t, err)
+		assert.Equal(t, expected, *result)
+	})
+	t.Run("Should parse rollback data after JSON persistence", func(t *testing.T) {
+		t.Parallel()
+		expected := ArchiveReleaseNotesResult{
+			Moves: []ArchivedReleaseNoteMove{
+				{
+					From: ".release-notes/a.md",
+					To:   ".release-notes/archive/v1.2.3/a.md",
+				},
+			},
+			GitKeepCreated: true,
+		}
+		encoded, err := json.Marshal(expected.ToRollbackData())
+		require.NoError(t, err)
+		var persisted map[string]any
+		err = json.Unmarshal(encoded, &persisted)
+		require.NoError(t, err)
+		result, err := ParseArchiveReleaseNotesResult(persisted)
+		require.NoError(t, err)
+		assert.Equal(t, expected, *result)
+	})
 	t.Run("Should rebuild archive rollback data from persisted map", func(t *testing.T) {
 		result, err := ParseArchiveReleaseNotesResult(map[string]any{
 			"gitkeep_created": true,

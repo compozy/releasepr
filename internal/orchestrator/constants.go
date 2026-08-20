@@ -72,12 +72,13 @@ const (
 	// ReleaseBodyOutputFile is the generated markdown consumed by GitHub Releases.
 	ReleaseBodyOutputFile = "RELEASE_BODY.md"
 	// ReleaseNotesGitKeepPath is the placeholder file that keeps `.release-notes/` in git.
-	ReleaseNotesGitKeepPath = ".release-notes/.gitkeep"
-	changelogFilePath       = "CHANGELOG.md"
-	packageManifestPath     = "package.json"
-	packageLockFilePath     = "package-lock.json"
-	releasePRLabelPending   = "release-pending"
-	releasePRLabelAutomated = "automated"
-	sagaStepSkipKey         = "skip"
-	releaseArtifactBun      = "bun"
+	ReleaseNotesGitKeepPath   = ".release-notes/.gitkeep"
+	changelogFilePath         = "CHANGELOG.md"
+	packageManifestPath       = "package.json"
+	packageLockFilePath       = "package-lock.json"
+	releasePRLabelPending     = "release-pending"
+	releasePRLabelAutomated   = "automated"
+	createPullRequestStepName = "Create Pull Request"
+	sagaStepSkipKey           = "skip"
+	releaseArtifactBun        = "bun"
 )

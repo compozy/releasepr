@@ -60,7 +60,7 @@ func (uc *PreparePRBodyUseCase) Execute(_ context.Context, release *domain.Relea
 	if err := uc.validateMarkdownContent("pr body", output); err != nil {
 		return "", fmt.Errorf("potential injection detected in PR body output")
 	}
-	return output, nil
+	return boundPullRequestBody(output, safeData.Version, safeData.Changelog, safeData.ReleaseNotes), nil
 }
 
 const prBodyTemplate = `

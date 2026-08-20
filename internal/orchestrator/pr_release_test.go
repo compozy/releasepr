@@ -10,6 +10,7 @@ import (
 	"github.com/compozy/releasepr/internal/config"
 	"github.com/compozy/releasepr/internal/domain"
 	"github.com/compozy/releasepr/internal/logger"
+	"github.com/compozy/releasepr/internal/usecase"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -207,6 +208,96 @@ func TestPRReleaseOrchestrator_releaseArtifactCommands(t *testing.T) {
 		exists, existsErr := afero.Exists(fsRepo, path)
 		require.NoError(t, existsErr)
 		assert.False(t, exists)
+	})
+	t.Run("Should restore archived release notes from newly produced rollback data", func(t *testing.T) {
+		ctx := testReleaseContext(t)
+		fsRepo := afero.NewMemMapFs()
+		activePath := ".release-notes/a.md"
+		archivedPath := ".release-notes/archive/v1.2.3/a.md"
+		require.NoError(t, fsRepo.MkdirAll(".release-notes/archive/v1.2.3", 0755))
+		require.NoError(t, afero.WriteFile(fsRepo, archivedPath, []byte("note"), 0644))
+		require.NoError(t, afero.WriteFile(fsRepo, ReleaseNotesGitKeepPath, nil, 0644))
+		gitRepo := new(mockGitExtendedRepository)
+		gitRepo.On("MoveFile", mock.Anything, archivedPath, activePath).
+			Run(func(mock.Arguments) {
+				require.NoError(t, fsRepo.Rename(archivedPath, activePath))
+			}).
+			Return(nil).
+			Once()
+		compensator := NewCompensatingActions(gitRepo, new(mockGithubExtendedRepository), fsRepo)
+		rollbackData := usecase.ArchiveReleaseNotesResult{
+			Moves: []usecase.ArchivedReleaseNoteMove{
+				{
+					From: activePath,
+					To:   archivedPath,
+				},
+			},
+			GitKeepCreated: true,
+		}.ToRollbackData()
+
+		err := compensator.RestoreArchivedReleaseNotes(ctx, rollbackData)
+
+		require.NoError(t, err)
+		activeExists, activeErr := afero.Exists(fsRepo, activePath)
+		require.NoError(t, activeErr)
+		assert.True(t, activeExists)
+		archivedExists, archivedErr := afero.Exists(fsRepo, archivedPath)
+		require.NoError(t, archivedErr)
+		assert.False(t, archivedExists)
+		gitKeepExists, gitKeepErr := afero.Exists(fsRepo, ReleaseNotesGitKeepPath)
+		require.NoError(t, gitKeepErr)
+		assert.False(t, gitKeepExists)
+		gitRepo.AssertExpectations(t)
+	})
+}
+
+func TestPRReleaseOrchestrator_createPullRequest(t *testing.T) {
+	t.Run("Should stop after one permanent GitHub client error", func(t *testing.T) {
+		t.Parallel()
+		githubRepo := new(mockGithubExtendedRepository)
+		githubRepo.On(
+			"CreateOrUpdatePR",
+			mock.Anything,
+			"release/v1.0.0",
+			"main",
+			"build: release v1.0.0",
+			mock.Anything,
+			mock.Anything,
+		).Return(githubStatusError(422)).Once()
+		orchestrator := &PRReleaseOrchestrator{githubRepo: githubRepo}
+
+		err := orchestrator.createPullRequest(t.Context(), "v1.0.0", "changelog", "", "release/v1.0.0")
+
+		require.Error(t, err)
+		githubRepo.AssertExpectations(t)
+	})
+	t.Run("Should retry a transient GitHub server error", func(t *testing.T) {
+		t.Parallel()
+		githubRepo := new(mockGithubExtendedRepository)
+		githubRepo.On(
+			"CreateOrUpdatePR",
+			mock.Anything,
+			"release/v1.0.0",
+			"main",
+			"build: release v1.0.0",
+			mock.Anything,
+			mock.Anything,
+		).Return(githubStatusError(502)).Once()
+		githubRepo.On(
+			"CreateOrUpdatePR",
+			mock.Anything,
+			"release/v1.0.0",
+			"main",
+			"build: release v1.0.0",
+			mock.Anything,
+			mock.Anything,
+		).Return(nil).Once()
+		orchestrator := &PRReleaseOrchestrator{githubRepo: githubRepo}
+
+		err := orchestrator.createPullRequest(t.Context(), "v1.0.0", "changelog", "", "release/v1.0.0")
+
+		require.NoError(t, err)
+		githubRepo.AssertExpectations(t)
 	})
 }
 
@@ -671,10 +762,8 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("Commit", mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("PushBranch", mock.Anything, branchName).Return(nil).Once()
 
-		// Fail on PR creation (use mock.Anything for context)
-		// Note: The retry might not be happening for non-retryable errors
 		githubRepo.On("CreateOrUpdatePR", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return(errors.New("GitHub API error")).
+			Return(githubStatusError(422)).
 			Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
@@ -1086,8 +1175,10 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 			// For file status checks during rollback
 		gitRepo.On("ListLocalBranches", mock.Anything).
 			Return([]string{"main", branchName}, nil).
+			Once()
+		gitRepo.On("ListLocalBranches", mock.Anything).
+			Return([]string{"main"}, nil).
 			Maybe()
-			// Check if branch exists
 		gitRepo.On("RemoteBranchExists", mock.Anything, branchName).
 			Return(true, nil).
 			Maybe()

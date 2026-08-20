@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/google/go-github/v74/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -14,6 +16,12 @@ import (
 
 // Define error for testing
 var errStateNotFound = fmt.Errorf("state not found")
+
+func githubStatusError(statusCode int) error {
+	return fmt.Errorf("github request failed: %w", &github.ErrorResponse{
+		Response: &http.Response{StatusCode: statusCode},
+	})
+}
 
 // MockStateRepository is a mock implementation of StateRepository
 type MockStateRepository struct {
@@ -52,6 +60,40 @@ func (m *MockStateRepository) Exists(ctx context.Context, sessionID string) (boo
 }
 
 func TestSagaExecutor_Execute(t *testing.T) {
+	t.Run("Should not retry a permanent GitHub client error", func(t *testing.T) {
+		t.Parallel()
+		mockRepo := new(MockStateRepository)
+		saga := NewSagaExecutor(mockRepo, false)
+		attempts := 0
+		saga.AddStep(SagaStep{
+			Name: createPullRequestStepName,
+			Type: domain.OperationTypeCreatePR,
+			Execute: func(context.Context) (map[string]any, error) {
+				attempts++
+				return nil, githubStatusError(http.StatusUnprocessableEntity)
+			},
+		})
+		err := saga.Execute(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, 1, attempts)
+	})
+	t.Run("Should retry a transient GitHub server error", func(t *testing.T) {
+		t.Parallel()
+		mockRepo := new(MockStateRepository)
+		saga := NewSagaExecutor(mockRepo, false)
+		attempts := 0
+		saga.AddStep(SagaStep{
+			Name: createPullRequestStepName,
+			Type: domain.OperationTypeCreatePR,
+			Execute: func(context.Context) (map[string]any, error) {
+				attempts++
+				return nil, githubStatusError(http.StatusInternalServerError)
+			},
+		})
+		err := saga.Execute(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, int(DefaultRetryCount)+1, attempts)
+	})
 	t.Run("Should execute all steps successfully", func(t *testing.T) {
 		// Arrange
 		mockRepo := new(MockStateRepository)
@@ -211,6 +253,52 @@ func TestSagaExecutor_Execute(t *testing.T) {
 }
 
 func TestSagaExecutor_Rollback(t *testing.T) {
+	t.Run("Should not retry compensation after a permanent GitHub client error", func(t *testing.T) {
+		t.Parallel()
+		mockRepo := new(MockStateRepository)
+		saga := NewSagaExecutor(mockRepo, false)
+		saga.state.Operations = []domain.OperationRecord{
+			{
+				Type:   domain.OperationTypeCreatePR,
+				Status: domain.OperationStatusCompleted,
+			},
+		}
+		attempts := 0
+		saga.AddStep(SagaStep{
+			Name: createPullRequestStepName,
+			Type: domain.OperationTypeCreatePR,
+			Compensate: func(context.Context, map[string]any) error {
+				attempts++
+				return githubStatusError(http.StatusUnprocessableEntity)
+			},
+		})
+		err := saga.Rollback(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, 1, attempts)
+	})
+	t.Run("Should retry compensation after a transient GitHub server error", func(t *testing.T) {
+		t.Parallel()
+		mockRepo := new(MockStateRepository)
+		saga := NewSagaExecutor(mockRepo, false)
+		saga.state.Operations = []domain.OperationRecord{
+			{
+				Type:   domain.OperationTypeCreatePR,
+				Status: domain.OperationStatusCompleted,
+			},
+		}
+		attempts := 0
+		saga.AddStep(SagaStep{
+			Name: createPullRequestStepName,
+			Type: domain.OperationTypeCreatePR,
+			Compensate: func(context.Context, map[string]any) error {
+				attempts++
+				return githubStatusError(http.StatusBadGateway)
+			},
+		})
+		err := saga.Rollback(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, int(DefaultRetryCount)+1, attempts)
+	})
 	t.Run("Should rollback completed steps in reverse order", func(t *testing.T) {
 		// Arrange
 		mockRepo := new(MockStateRepository)

@@ -13,7 +13,6 @@ import (
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/service"
 	"github.com/compozy/releasepr/internal/usecase"
-	"github.com/sethvargo/go-retry"
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -459,14 +458,9 @@ func (o *PRReleaseOrchestrator) createPullRequest(
 	}
 	title := releasePullRequestTitle(version)
 	labels := []string{releasePRLabelPending, releasePRLabelAutomated}
-	// Create/Update PR with retry for network failures
-	return retry.Do(
-		ctx,
-		retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay)),
-		func(ctx context.Context) error {
-			return o.githubRepo.CreateOrUpdatePR(ctx, branchName, "main", title, body, labels)
-		},
-	)
+	return retryOperation(ctx, func(retryCtx context.Context) error {
+		return o.githubRepo.CreateOrUpdatePR(retryCtx, branchName, "main", title, body, labels)
+	})
 }
 
 func releasePullRequestTitle(version string) string {
@@ -940,7 +934,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 	wctx *workflowContext,
 ) {
 	saga.AddStep(SagaStep{
-		Name: "Create Pull Request",
+		Name: createPullRequestStepName,
 		Type: domain.OperationTypeCreatePR,
 		Execute: func(ctx context.Context) (map[string]any, error) {
 			if wctx.version == "" || cfg.SkipPR || cfg.DryRun {
@@ -972,13 +966,7 @@ func (o *PRReleaseOrchestrator) addCreatePRStep(
 				zap.String("title", title),
 				zap.Strings("labels", labels),
 			)
-			err = retry.Do(
-				ctx,
-				retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay)),
-				func(ctx context.Context) error {
-					return o.githubRepo.CreateOrUpdatePR(ctx, wctx.branchName, "main", title, body, labels)
-				},
-			)
+			err = o.githubRepo.CreateOrUpdatePR(ctx, wctx.branchName, "main", title, body, labels)
 			if err != nil {
 				o.logger(ctx).Error("Failed to create or update PR", zap.Error(err))
 				return nil, fmt.Errorf("failed to create or update PR from %s to main: %w", wctx.branchName, err)

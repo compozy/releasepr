@@ -83,7 +83,7 @@ func (uc *ArchiveReleaseNotesUseCase) Execute(ctx context.Context, version strin
 
 // ToRollbackData converts the archive result into JSON-friendly saga data.
 func (r ArchiveReleaseNotesResult) ToRollbackData() map[string]any {
-	moves := make([]map[string]any, 0, len(r.Moves))
+	moves := make([]any, 0, len(r.Moves))
 	for _, move := range r.Moves {
 		moves = append(moves, map[string]any{
 			"from": move.From,

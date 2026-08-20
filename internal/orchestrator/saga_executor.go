@@ -8,7 +8,6 @@ import (
 	"github.com/compozy/releasepr/internal/logger"
 	"github.com/compozy/releasepr/internal/repository"
 	"github.com/google/uuid"
-	"github.com/sethvargo/go-retry"
 	"go.uber.org/zap"
 )
 
@@ -115,8 +114,7 @@ func (s *SagaExecutor) executeStep(ctx context.Context, step SagaStep) error {
 		}
 	}
 	var rollbackData map[string]any
-	retryStrategy := retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay))
-	err := retry.Do(ctx, retryStrategy, func(retryCtx context.Context) error {
+	err := retryOperation(ctx, func(retryCtx context.Context) error {
 		// Check if context is canceled before executing
 		select {
 		case <-retryCtx.Done():
@@ -125,7 +123,7 @@ func (s *SagaExecutor) executeStep(ctx context.Context, step SagaStep) error {
 		}
 		data, execErr := step.Execute(retryCtx)
 		if execErr != nil {
-			return retry.RetryableError(execErr)
+			return execErr
 		}
 		rollbackData = data
 		return nil
@@ -190,18 +188,14 @@ func (s *SagaExecutor) rollback(ctx context.Context) error {
 
 // executeCompensation executes a compensating action with retry
 func (s *SagaExecutor) executeCompensation(ctx context.Context, step *SagaStep, rollbackData map[string]any) error {
-	retryStrategy := retry.WithMaxRetries(DefaultRetryCount, retry.NewExponential(DefaultRetryDelay))
-	return retry.Do(ctx, retryStrategy, func(retryCtx context.Context) error {
+	return retryOperation(ctx, func(retryCtx context.Context) error {
 		// Check if context is canceled
 		select {
 		case <-retryCtx.Done():
 			return retryCtx.Err()
 		default:
 		}
-		if err := step.Compensate(retryCtx, rollbackData); err != nil {
-			return retry.RetryableError(err)
-		}
-		return nil
+		return step.Compensate(retryCtx, rollbackData)
 	})
 }
 
