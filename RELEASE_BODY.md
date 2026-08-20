@@ -1,7 +1,7 @@
-## 0.0.28 - 2026-08-13
+## 0.0.29 - 2026-08-20
 
 
 
 ### 🐛 Bug Fixes
 
-- Use conventional release pr titles
+- Bound release pull request bodies
