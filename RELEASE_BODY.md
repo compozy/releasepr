@@ -1,7 +1,7 @@
-## 0.0.31 - 2026-10-23
+## 0.0.32 - 2026-10-23
 
 
 
 ### 🐛 Bug Fixes
 
-- Keep Release-As declarations through prereleases until the next stable
+- Recognize bridge tags when selecting release predecessors (#22)
