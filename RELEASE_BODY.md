@@ -1,13 +1,7 @@
-## 0.0.30 - 2026-10-23
+## 0.0.31 - 2026-10-23
 
 
 
-### 🎉 Features
+### 🐛 Bug Fixes
 
-- Scope stable releases after betas and honor Release-As footers
-
-
-
-### 🔧 CI/CD
-
-- Drop the unused npm authentication gate
+- Keep Release-As declarations through prereleases until the next stable
