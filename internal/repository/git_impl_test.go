@@ -271,6 +271,72 @@ func TestGitRepository_ResolveRevision(t *testing.T) {
 }
 
 func TestGitRepository_PreviousReleaseTag(t *testing.T) {
+	t.Run("Should ignore tags descending from the planned release", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		base, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0", base.Hash(), nil)
+		require.NoError(t, err)
+		target := commitFixtureWithParents(t, dir, wt, "target", "fix: target", base.Hash())
+		future := commitFixtureWithParents(t, dir, wt, "future", "fix: future", target)
+		_, err = repo.CreateTag("v1.0.2", future, nil)
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), target.String(), "v1.0.1")
+		require.NoError(t, err)
+		assert.Equal(t, "v1.0.0", tag)
+	})
+	t.Run("Should consider the first-parent base in a crisscross bridge history", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		base, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0", base.Hash(), nil)
+		require.NoError(t, err)
+		left := commitFixtureWithParents(t, dir, wt, "left", "feat: left", base.Hash())
+		right := commitFixtureWithParents(t, dir, wt, "right", "feat: right", base.Hash())
+		target := commitFixtureWithParents(t, dir, wt, "target", "fix: target", left, right)
+		bridge := commitFixtureWithParents(t, dir, wt, "bridge", "build: bridge", right, left)
+		_, err = repo.CreateTag("v1.1.0-beta.1", bridge, nil)
+		require.NoError(t, err)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), target.String(), "v1.1.0")
+		require.NoError(t, err)
+		assert.Equal(t, "v1.1.0-beta.1", tag)
+	})
+	t.Run("Should prefer a bridge prerelease forked after the first-parent release", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		initial, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v0.3.0-beta.38", initial.Hash(), nil)
+		require.NoError(t, err)
+		base := commitFixtureWithParents(t, dir, wt, "base", "feat: stable tooling", initial.Hash())
+		bridge := commitFixtureWithParents(t, dir, wt, "bridge", "build: pin web assets", base)
+		_, err = repo.CreateTag("v0.3.0-beta.39", bridge, &git.CreateTagOptions{
+			Message: "Bridge beta",
+			Tagger:  &object.Signature{Name: "Test User", Email: "test@example.com"},
+		})
+		require.NoError(t, err)
+		target := commitFixtureWithParents(t, dir, wt, "stable", "fix: smoke channel", base)
+		gitRepo := &gitRepository{repo: repo}
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), target.String(), "v0.4.0")
+		require.NoError(t, err)
+		assert.Equal(t, "v0.3.0-beta.39", tag)
+		tag, err = gitRepo.PreviousReleaseTag(t.Context(), target.String(), "v0.3.0-beta.39")
+		require.NoError(t, err)
+		assert.Equal(t, "v0.3.0-beta.38", tag)
+		_, err = repo.CreateTag("v0.4.0", target, nil)
+		require.NoError(t, err)
+		after := commitFixtureWithParents(t, dir, wt, "after", "fix: after stable", target)
+		tag, err = gitRepo.PreviousReleaseTag(t.Context(), after.String(), "")
+		require.NoError(t, err)
+		assert.Equal(t, "v0.4.0", tag)
+	})
 	t.Run("Should select the nearest reachable tag including prereleases", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
 		initial, err := repo.Head()
