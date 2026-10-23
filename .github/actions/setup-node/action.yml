@@ -1,5 +1,5 @@
 name: "Setup Node.js Environment"
-description: "Sets up Node.js and npm with authentication for Compozy"
+description: "Sets up Node.js for release tooling"
 author: "Compozy Team"
 
 inputs:
@@ -16,12 +16,7 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/setup-node@v4
+    - id: setup-node
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        registry-url: "https://registry.npmjs.org"
-        scope: "@compozy"
-
-    - name: Ensure NPM access
-      run: npm whoami
-      shell: bash
