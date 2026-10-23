@@ -136,13 +136,17 @@ func (r *gitRepository) ResolveRevision(ctx context.Context, ref string) (string
 	return hash.String(), nil
 }
 
-// PreviousReleaseTag returns the nearest first-parent strict semantic-version tag, prereleases included.
+// PreviousReleaseTag includes bridge tags forked after the nearest first-parent release.
 func (r *gitRepository) PreviousReleaseTag(
 	ctx context.Context,
 	commit string,
 	excludeTag string,
 ) (string, error) {
-	return r.nearestReleaseTag(ctx, commit, excludeTag, true)
+	previous, err := r.nearestReleaseTag(ctx, commit, excludeTag, true)
+	if err != nil {
+		return "", err
+	}
+	return r.bridgeReleaseTag(ctx, commit, excludeTag, previous)
 }
 
 func (r *gitRepository) nearestReleaseTag(

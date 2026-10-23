@@ -141,7 +141,11 @@ publication policy as JSON. The version must be strict SemVer without a
 leading `v`. Every channel selects the nearest strict semantic-version tag on
 the first-parent release line, prereleases included, so a stable release that
 follows a beta line publishes only the changes since the last beta.
-`initial_release` is true only when that line has no matching predecessor.
+A bridge tag on a side branch can supersede that predecessor only when its
+merge-base with `HEAD` is on the first-parent line and newer than the existing
+predecessor. The closest such fork wins; tags at the same fork use the highest
+semantic version. Merged side tags and older forks do not displace the existing
+release line. `initial_release` is true only when neither selection finds a tag.
 
 For an explicit retry after tag creation, add `--allow-existing-tag`. Recovery
 is accepted only when the existing local or remote tag is annotated and
