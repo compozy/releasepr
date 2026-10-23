@@ -56,7 +56,9 @@ type: highlight
 
 Only this release needs these notes.
 `), 0644))
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(scopedChangelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(scopedChangelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		artifacts, err := orch.generateChangelog(ctx, "v1.1.0")
@@ -94,7 +96,9 @@ Only this release needs these notes.
 		npmSvc := new(mockNpmService)
 		scopedChangelog := "## v2.0.0\n\n### Features\n- Current release"
 		fullChangelog := "# Changelog\n\n" + scopedChangelog
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v2.0.0", "release").Return(scopedChangelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v2.0.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).Return(scopedChangelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		artifacts, err := orch.generateChangelog(ctx, "v2.0.0")
@@ -124,7 +128,9 @@ Only this release needs these notes.
 		fullChangelog := "# Changelog\n\n" + scopedChangelog
 		previousReleaseNotes := "## v2.0.0\n\n### Fixes\n- Old content\n\n## v1.0.0\n\n### Features\n- Previous release"
 		require.NoError(t, afero.WriteFile(fsRepo, "RELEASE_NOTES.md", []byte(previousReleaseNotes), 0644))
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v2.0.0", "release").Return(scopedChangelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v2.0.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).Return(scopedChangelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		_, err := orch.generateChangelog(ctx, "v2.0.0")
@@ -138,6 +144,50 @@ Only this release needs these notes.
 		assert.NotContains(t, releaseNotesDocument, "- Old content")
 		cliffSvc.AssertExpectations(t)
 	})
+}
+
+// Contract: PR artifacts use the plan's predecessor, while the historical changelog stays complete.
+// Owning layer and canonical suite: PR release orchestration in this file.
+func TestPRReleaseOrchestrator_releaseRange(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		previous string
+	}{
+		{"stable after beta", "v0.4.0-beta.2"},
+		{"stable after bridge", "v0.3.0-beta.39"},
+		{"initial release", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testReleaseContext(t)
+			fsRepo := afero.NewMemMapFs()
+			gitRepo := new(mockGitExtendedRepository)
+			cliffSvc := new(mockCliffService)
+			head := strings.Repeat("b", 40)
+			gitRange := ""
+			if tc.previous != "" {
+				gitRange = tc.previous + ".." + head
+				gitRepo.On("AddedFiles", mock.Anything, gitRange, ".release-notes").Return([]string{}, nil).Once()
+			}
+			gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(head, nil).Once()
+			gitRepo.On("PreviousReleaseTag", mock.Anything, head, "v0.4.0").Return(tc.previous, nil).Once()
+			delta := "## v0.4.0\n\n- Fix bridge smoke"
+			history := "# Changelog\n\n" + delta + "\n\n## v0.3.0-beta.39\n\n- Previous work"
+			cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v0.4.0", gitRange, tc.previous == "").Return(delta, nil).Once()
+			cliffSvc.On("GenerateFullChangelog", mock.Anything, "v0.4.0").Return(history, nil).Once()
+			orch := NewPRReleaseOrchestrator(gitRepo, new(mockGithubExtendedRepository), fsRepo, cliffSvc, new(mockNpmService))
+			artifacts, err := orch.generateChangelog(ctx, "v0.4.0")
+			require.NoError(t, err)
+			assert.Equal(t, delta, artifacts.changelog)
+			body, err := afero.ReadFile(fsRepo, "RELEASE_BODY.md")
+			require.NoError(t, err)
+			assert.Equal(t, delta, string(body))
+			full, err := afero.ReadFile(fsRepo, "CHANGELOG.md")
+			require.NoError(t, err)
+			assert.Equal(t, history, string(full))
+			gitRepo.AssertExpectations(t)
+			cliffSvc.AssertExpectations(t)
+		})
+	}
 }
 
 func TestPRReleaseOrchestrator_releaseArtifactCommands(t *testing.T) {
@@ -327,7 +377,9 @@ func TestPRReleaseOrchestrator_ExecuteReleaseArtifacts(t *testing.T) {
 		gitRepo.On("CreateBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
 		changelog := "## v1.2.3\n\n### Features\n- Generate site changelog"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.2.3", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.2.3").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.2.3", "", true).Return(changelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.2.3").Return("# Changelog\n\n"+changelog, nil).Once()
 		artifactRuns := 0
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
@@ -378,7 +430,9 @@ func TestPRReleaseOrchestrator_ExecuteReleaseArtifacts(t *testing.T) {
 		gitRepo.On("CreateBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
 		gitRepo.On("CheckoutBranch", mock.Anything, "release/v1.2.3").Return(nil).Once()
 		changelog := "## v1.2.3\n\n### Features\n- Generate site changelog"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.2.3", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.2.3").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.2.3", "", true).Return(changelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.2.3").Return("# Changelog\n\n"+changelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		orch.artifactRunner = func(
@@ -430,7 +484,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		// Setup expectations for generateChangelog
 		changelog := "## v1.1.0\n\n### Features\n- New feature added\n### Bug Fixes\n- Fixed critical bug"
 		fullChangelog := "# Changelog\n\n" + changelog + "\n\n## v1.0.0\n\n### Misc\n- Previous entry"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 
 		// Setup expectations for commitChanges
@@ -512,7 +568,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 
 		changelog := "## v1.1.0\n\n### Fixes\n- Refresh release automation"
 		fullChangelog := "# Changelog\n\n" + changelog
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
@@ -607,7 +665,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.0.1\n\n### Maintenance\n- Forced release"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.0.1", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.0.1").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.0.1", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -714,7 +774,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation (use mock.Anything for context)
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
 			Return("", errors.New("cliff failed")).
 			Once()
 
@@ -755,7 +817,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -802,7 +866,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -890,7 +956,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v0.1.0\n\n### Features\n- Initial release"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v0.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v0.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v0.1.0", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -973,7 +1041,9 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -1075,7 +1145,9 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("GetFileStatus", mock.Anything, mock.Anything).Return("modified", nil).Maybe()
 
 		// Setup expectations for changelog generation - FAIL
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
 			Return("", errors.New("cliff failed")).Maybe() // May be called multiple times with retries
 
 		// Rollback expectations
@@ -1149,7 +1221,9 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
 			Return(changelog, nil).
 			Maybe()
 			// May be called multiple times with retries
@@ -1251,7 +1325,9 @@ func TestPRReleaseOrchestrator_RollbackOnFailure(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
 			Return("", errors.New("changelog failed")).Maybe() // May be called multiple times with retries
 
 		// Add mocks for rollback operations
@@ -1314,7 +1390,9 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		changelog := "## v1.1.0\n\n### Features\n- New feature"
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").Return(changelog, nil).Once()
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(changelog, nil).Once()
 
 		gitRepo.On("ConfigureUser", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		gitRepo.On("AddFiles", mock.Anything, mock.Anything).Return(nil).Times(5)
@@ -1363,7 +1441,9 @@ func TestPRReleaseOrchestrator_DisabledRollback(t *testing.T) {
 		gitRepo.On("CheckoutBranch", mock.Anything, branchName).Return(nil).Once()
 
 		// Fail on changelog generation
-		cliffSvc.On("GenerateChangelog", mock.Anything, "v1.1.0", "release").
+		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
+		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
 			Return("", errors.New("changelog failed")).Once()
 
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)

@@ -50,12 +50,24 @@ func (uc *RenderReleaseBodyUseCase) Execute(
 	ctx context.Context,
 	input RenderReleaseBodyInput,
 ) (string, error) {
-	coreTag, err := domain.CoreReleaseTag(input.Tag)
+	changelog, notes, err := uc.RenderParts(ctx, input)
 	if err != nil {
 		return "", err
 	}
+	return domain.BuildReleaseBody(changelog, notes), nil
+}
+
+// RenderParts scopes both changelog and manual notes for CLI and release-PR consumers.
+func (uc *RenderReleaseBodyUseCase) RenderParts(
+	ctx context.Context,
+	input RenderReleaseBodyInput,
+) (string, string, error) {
+	coreTag, err := domain.CoreReleaseTag(input.Tag)
+	if err != nil {
+		return "", "", err
+	}
 	if err := domain.ValidateReleaseSelector(input.GitRange, input.Initial); err != nil {
-		return "", err
+		return "", "", err
 	}
 	changelog, err := uc.cliffSvc.GenerateReleaseBodyChangelog(
 		ctx,
@@ -64,13 +76,13 @@ func (uc *RenderReleaseBodyUseCase) Execute(
 		input.Initial,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to render release changelog: %w", err)
+		return "", "", fmt.Errorf("failed to render release changelog: %w", err)
 	}
 	collection, err := uc.collectNotes(ctx, coreTag, input.GitRange)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return domain.BuildReleaseBody(changelog, collection.RenderMarkdown()), nil
+	return changelog, collection.RenderMarkdown(), nil
 }
 
 func (uc *RenderReleaseBodyUseCase) collectNotes(

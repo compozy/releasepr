@@ -242,6 +242,11 @@ Production releases are published from `RELEASE_BODY.md`. The release workflow w
 - `--release-header-tmpl=.goreleaser.release-header.md.tmpl`
 - `--release-footer-tmpl=.goreleaser.release-footer.md.tmpl`
 
+Release PR generation uses the same predecessor resolution as `plan` and the same
+range renderer as `release-body`, including prerelease and bridge tags. The
+current release body is scoped to that range; full `CHANGELOG.md` generation
+retains its existing history behavior.
+
 `RELEASE_BODY.md` contains only the current release section. `RELEASE_NOTES.md` is the committed historical document and prepends the current release while preserving older release sections.
 
 ---

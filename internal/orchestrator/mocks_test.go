@@ -220,3 +220,24 @@ func (m *mockStateRepository) Exists(ctx context.Context, sessionID string) (boo
 	args := m.Called(ctx, sessionID)
 	return args.Bool(0), args.Error(1)
 }
+
+func (m *mockGitExtendedRepository) ResolveRevision(ctx context.Context, ref string) (string, error) {
+	args := m.Called(ctx, ref)
+	return args.String(0), args.Error(1)
+}
+func (m *mockGitExtendedRepository) PreviousReleaseTag(ctx context.Context, commit, exclude string) (string, error) {
+	args := m.Called(ctx, commit, exclude)
+	return args.String(0), args.Error(1)
+}
+func (m *mockGitExtendedRepository) ReleaseTagCommit(ctx context.Context, tag string) (string, bool, error) {
+	args := m.Called(ctx, tag)
+	return args.String(0), args.Bool(1), args.Error(2)
+}
+func (m *mockGitExtendedRepository) AddedFiles(ctx context.Context, gitRange, path string) ([]string, error) {
+	args := m.Called(ctx, gitRange, path)
+	return args.Get(0).([]string), args.Error(1)
+}
+func (m *mockCliffService) GenerateReleaseBodyChangelog(ctx context.Context, tag, gitRange string, initial bool) (string, error) {
+	args := m.Called(ctx, tag, gitRange, initial)
+	return args.String(0), args.Error(1)
+}
