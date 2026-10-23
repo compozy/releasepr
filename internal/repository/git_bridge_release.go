@@ -84,6 +84,11 @@ func (r *gitRepository) bridgeReleasePosition(
 		}
 		return 0, false, fmt.Errorf("failed to find bridge merge base for %s: %w", tag, err)
 	}
-	position, onLine := positions[strings.TrimSpace(base)]
-	return position, onLine, nil
+	nearest := len(positions)
+	for _, hash := range strings.Fields(base) {
+		if position, onLine := positions[hash]; onLine && position > 0 && position < nearest {
+			nearest = position
+		}
+	}
+	return nearest, nearest < len(positions), nil
 }
