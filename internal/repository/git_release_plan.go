@@ -142,10 +142,19 @@ func (r *gitRepository) PreviousReleaseTag(
 	commit string,
 	excludeTag string,
 ) (string, error) {
+	return r.nearestReleaseTag(ctx, commit, excludeTag, true)
+}
+
+func (r *gitRepository) nearestReleaseTag(
+	ctx context.Context,
+	commit string,
+	excludeTag string,
+	includePrereleases bool,
+) (string, error) {
 	if _, err := r.ResolveRevision(ctx, commit); err != nil {
 		return "", err
 	}
-	tags, err := r.mergedReleaseTags(ctx, commit, excludeTag)
+	tags, err := r.mergedReleaseTags(ctx, commit, excludeTag, includePrereleases)
 	if err != nil || len(tags) == 0 {
 		return "", err
 	}
@@ -168,14 +177,15 @@ func (r *gitRepository) PreviousReleaseTag(
 	return strings.TrimSpace(output), nil
 }
 
-// CommitMessagesSinceRelease returns the full messages of HEAD commits after the nearest release tag.
-// Without a reachable release tag, every commit reachable from HEAD is returned.
-func (r *gitRepository) CommitMessagesSinceRelease(ctx context.Context) ([]string, error) {
+// CommitMessagesSinceStableRelease returns the full messages of HEAD commits after the nearest stable
+// release tag, so prereleases cut on the way to a declared version keep its declaration in range.
+// Without a reachable stable tag, every commit reachable from HEAD is returned.
+func (r *gitRepository) CommitMessagesSinceStableRelease(ctx context.Context) ([]string, error) {
 	head, err := r.ResolveRevision(ctx, "HEAD")
 	if err != nil {
 		return nil, err
 	}
-	previousTag, err := r.PreviousReleaseTag(ctx, head, "")
+	previousTag, err := r.nearestReleaseTag(ctx, head, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +210,7 @@ func (r *gitRepository) mergedReleaseTags(
 	ctx context.Context,
 	commit string,
 	excludeTag string,
+	includePrereleases bool,
 ) ([]string, error) {
 	output, err := r.runReadOnlyGit(ctx, "tag", "--merged", commit, "--list", "v*")
 	if err != nil {
@@ -210,8 +221,11 @@ func (r *gitRepository) mergedReleaseTags(
 		if tag == excludeTag {
 			continue
 		}
-		if _, parseErr := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); parseErr != nil ||
-			!strings.HasPrefix(tag, "v") {
+		version, parseErr := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
+		if parseErr != nil || !strings.HasPrefix(tag, "v") {
+			continue
+		}
+		if !includePrereleases && version.Prerelease() != "" {
 			continue
 		}
 		tags = append(tags, tag)

@@ -26,7 +26,7 @@ func (s *archiveGitRepoStub) CommitsSinceTag(context.Context, string) (int, erro
 	return 0, nil
 }
 
-func (s *archiveGitRepoStub) CommitMessagesSinceRelease(context.Context) ([]string, error) {
+func (s *archiveGitRepoStub) CommitMessagesSinceStableRelease(context.Context) ([]string, error) {
 	return nil, nil
 }
 

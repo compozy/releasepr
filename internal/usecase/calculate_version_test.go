@@ -22,7 +22,7 @@ func TestCalculateVersionUseCase_Execute(t *testing.T) {
 		expectedVer, _ := domain.NewVersion("v1.1.0")
 		gitRepo.On("LatestTag", ctx).Return("v1.0.0", nil)
 		cliffSvc.On("CalculateNextVersion", ctx, "v1.0.0").Return(expectedVer, nil)
-		gitRepo.On("CommitMessagesSinceRelease", ctx).Return([]string{"feat: add thing"}, nil)
+		gitRepo.On("CommitMessagesSinceStableRelease", ctx).Return([]string{"feat: add thing"}, nil)
 		version, err := uc.Execute(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, expectedVer, version)
@@ -41,7 +41,7 @@ func TestCalculateVersionUseCase_Execute(t *testing.T) {
 		gitRepo.On("LatestTag", ctx).Return("", nil)
 		// When no tag exists, the use case now defaults to "v0.0.0"
 		cliffSvc.On("CalculateNextVersion", ctx, "v0.0.0").Return(expectedVer, nil)
-		gitRepo.On("CommitMessagesSinceRelease", ctx).Return([]string(nil), nil)
+		gitRepo.On("CommitMessagesSinceStableRelease", ctx).Return([]string(nil), nil)
 		version, err := uc.Execute(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, expectedVer, version)
@@ -64,7 +64,7 @@ func TestCalculateVersionUseCase_Execute(t *testing.T) {
 		gitRepo.On("LatestTag", ctx).Return("", nil)
 		// Should use INITIAL_VERSION value
 		cliffSvc.On("CalculateNextVersion", ctx, "v0.5.0").Return(expectedVer, nil)
-		gitRepo.On("CommitMessagesSinceRelease", ctx).Return([]string(nil), nil)
+		gitRepo.On("CommitMessagesSinceStableRelease", ctx).Return([]string(nil), nil)
 		version, err := uc.Execute(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, expectedVer, version)
@@ -113,7 +113,7 @@ func TestCalculateVersionUseCase_Execute(t *testing.T) {
 		computed, _ := domain.NewVersion("v0.3.0")
 		gitRepo.On("LatestTag", ctx).Return("v0.3.0-beta.38", nil)
 		cliffSvc.On("CalculateNextVersion", ctx, "v0.3.0-beta.38").Return(computed, nil)
-		gitRepo.On("CommitMessagesSinceRelease", ctx).Return(
+		gitRepo.On("CommitMessagesSinceStableRelease", ctx).Return(
 			[]string{"fix: polish", "build: leave beta\n\nRelease-As: 0.4.0"},
 			nil,
 		)
@@ -129,7 +129,7 @@ func TestCalculateVersionUseCase_Execute(t *testing.T) {
 		computed, _ := domain.NewVersion("v1.1.0")
 		gitRepo.On("LatestTag", ctx).Return("v1.0.0", nil)
 		cliffSvc.On("CalculateNextVersion", ctx, "v1.0.0").Return(computed, nil)
-		gitRepo.On("CommitMessagesSinceRelease", ctx).Return([]string{"fix: a\n\nRelease-As: 1.0.1"}, nil)
+		gitRepo.On("CommitMessagesSinceStableRelease", ctx).Return([]string{"fix: a\n\nRelease-As: 1.0.1"}, nil)
 		version, err := uc.Execute(ctx)
 		assert.ErrorContains(t, err, "lower than the computed version")
 		assert.Nil(t, version)

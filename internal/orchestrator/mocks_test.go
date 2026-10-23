@@ -22,7 +22,7 @@ func (m *mockGitExtendedRepository) CommitsSinceTag(ctx context.Context, tag str
 	args := m.Called(ctx, tag)
 	return args.Int(0), args.Error(1)
 }
-func (m *mockGitExtendedRepository) CommitMessagesSinceRelease(context.Context) ([]string, error) {
+func (m *mockGitExtendedRepository) CommitMessagesSinceStableRelease(context.Context) ([]string, error) {
 	return m.releaseMessages, nil
 }
 func (m *mockGitExtendedRepository) TagExists(ctx context.Context, tag string) (bool, error) {

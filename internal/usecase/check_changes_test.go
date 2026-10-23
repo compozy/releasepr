@@ -26,7 +26,7 @@ func (m *mockGitRepository) CommitsSinceTag(ctx context.Context, tag string) (in
 	return args.Int(0), args.Error(1)
 }
 
-func (m *mockGitRepository) CommitMessagesSinceRelease(ctx context.Context) ([]string, error) {
+func (m *mockGitRepository) CommitMessagesSinceStableRelease(ctx context.Context) ([]string, error) {
 	args := m.Called(ctx)
 	messages, _ := args.Get(0).([]string)
 	return messages, args.Error(1)

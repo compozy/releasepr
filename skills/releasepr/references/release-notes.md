@@ -19,7 +19,7 @@ Force a release anyway with `pr-release pr-release --force`.
 
 When the next version is a product decision rather than a commit-type bump
 (for example, the first stable release after a beta line), add a
-`Release-As: X.Y.Z` footer to any commit after the nearest release tag:
+`Release-As: X.Y.Z` footer to any commit after the nearest stable release tag:
 
 ```text
 build: declare the first stable release
@@ -34,8 +34,10 @@ Release-As: 0.4.0
 - All footers in the range must agree; conflicting values fail the job.
 - Squash merges keep the footer when the squash message includes commit
   messages; otherwise put the footer in the squash commit body.
-- Once the declared version is tagged, the footer falls behind the new tag and
-  stops applying. Never fake a `BREAKING CHANGE` to force a version.
+- Prereleases cut after the footer (for example, a bridge beta) keep the
+  declaration in range. Once the next stable version is tagged, the footer
+  falls behind that tag and stops applying. Never fake a `BREAKING CHANGE` to
+  force a version.
 
 Reserve commits whose subject starts with `build: release ` on the default
 branch for generated release PRs — that prefix triggers the production release

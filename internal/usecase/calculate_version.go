@@ -35,7 +35,7 @@ func (uc *CalculateVersionUseCase) Execute(ctx context.Context) (*domain.Version
 	if err != nil {
 		return nil, err
 	}
-	messages, err := uc.GitRepo.CommitMessagesSinceRelease(ctx)
+	messages, err := uc.GitRepo.CommitMessagesSinceStableRelease(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read release-as declarations: %w", err)
 	}

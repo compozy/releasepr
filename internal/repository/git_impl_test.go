@@ -384,28 +384,44 @@ func commitFixtureWithParents(
 	return commit
 }
 
-func TestGitRepository_CommitMessagesSinceRelease(t *testing.T) {
-	t.Run("Should return only messages after the nearest release tag, prereleases included", func(t *testing.T) {
-		dir, repo := setupTestRepo(t)
-		wt, err := repo.Worktree()
-		require.NoError(t, err)
-		base, err := repo.Head()
-		require.NoError(t, err)
-		_, err = repo.CreateTag("v1.0.0", base.Hash(), nil)
-		require.NoError(t, err)
-		beta := commitFixtureWithParents(t, dir, wt, "beta", "feat: beta\n\nRelease-As: 9.0.0", base.Hash())
-		_, err = repo.CreateTag("v1.1.0-beta.1", beta, nil)
-		require.NoError(t, err)
-		commitFixtureWithParents(t, dir, wt, "stable", "build: leave beta\n\nRelease-As: 2.0.0", beta)
-		gitRepo := &gitRepository{repo: repo}
-		messages, err := gitRepo.CommitMessagesSinceRelease(t.Context())
-		require.NoError(t, err)
-		assert.Equal(t, []string{"build: leave beta\n\nRelease-As: 2.0.0"}, messages)
-	})
-	t.Run("Should return the whole history when no release tag is reachable", func(t *testing.T) {
+func TestGitRepository_CommitMessagesSinceStableRelease(t *testing.T) {
+	t.Run(
+		"Should keep declarations made before an intermediate prerelease until the next stable tag",
+		func(t *testing.T) {
+			dir, repo := setupTestRepo(t)
+			wt, err := repo.Worktree()
+			require.NoError(t, err)
+			base, err := repo.Head()
+			require.NoError(t, err)
+			_, err = repo.CreateTag("v1.0.0", base.Hash(), nil)
+			require.NoError(t, err)
+			declared := commitFixtureWithParents(
+				t,
+				dir,
+				wt,
+				"declare",
+				"build: declare\n\nRelease-As: 2.0.0",
+				base.Hash(),
+			)
+			_, err = repo.CreateTag("v1.1.0-beta.1", declared, nil)
+			require.NoError(t, err)
+			afterBeta := commitFixtureWithParents(t, dir, wt, "after beta", "fix: after beta", declared)
+			gitRepo := &gitRepository{repo: repo}
+			messages, err := gitRepo.CommitMessagesSinceStableRelease(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, []string{"fix: after beta", "build: declare\n\nRelease-As: 2.0.0"}, messages)
+			_, err = repo.CreateTag("v2.0.0", afterBeta, nil)
+			require.NoError(t, err)
+			commitFixtureWithParents(t, dir, wt, "next", "fix: next", afterBeta)
+			messages, err = gitRepo.CommitMessagesSinceStableRelease(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, []string{"fix: next"}, messages)
+		},
+	)
+	t.Run("Should return the whole history when no stable release tag is reachable", func(t *testing.T) {
 		_, repo := setupTestRepo(t)
 		gitRepo := &gitRepository{repo: repo}
-		messages, err := gitRepo.CommitMessagesSinceRelease(t.Context())
+		messages, err := gitRepo.CommitMessagesSinceStableRelease(t.Context())
 		require.NoError(t, err)
 		assert.NotEmpty(t, messages)
 	})
