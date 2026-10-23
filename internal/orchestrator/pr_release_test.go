@@ -1414,6 +1414,30 @@ func TestPRReleaseOrchestrator_prepareRelease(t *testing.T) {
 		gitRepo.AssertExpectations(t)
 		cliffSvc.AssertExpectations(t)
 	})
+	t.Run("Should name the release branch after a declared Release-As version", func(t *testing.T) {
+		ctx := testReleaseContext(t)
+		gitRepo := &mockGitExtendedRepository{
+			releaseMessages: []string{"build: leave beta\n\nRelease-As: 0.4.0"},
+		}
+		cliffSvc := new(mockCliffService)
+		gitRepo.On("LatestTag", mock.Anything).Return("v0.3.0-beta.38", nil).Once()
+		computed, _ := domain.NewVersion("v0.3.0")
+		cliffSvc.On("CalculateNextVersion", mock.Anything, "v0.3.0-beta.38").Return(computed, nil).Once()
+		gitRepo.On("CreateBranch", mock.Anything, "release/v0.4.0").Return(nil).Once()
+		gitRepo.On("CheckoutBranch", mock.Anything, "release/v0.4.0").Return(nil).Once()
+		orch := NewPRReleaseOrchestrator(
+			gitRepo,
+			new(mockGithubExtendedRepository),
+			afero.NewMemMapFs(),
+			cliffSvc,
+			new(mockNpmService),
+		)
+		version, branch, err := orch.prepareRelease(ctx, "v0.3.0-beta.38", false)
+		require.NoError(t, err)
+		assert.Equal(t, "v0.4.0", version)
+		assert.Equal(t, "release/v0.4.0", branch)
+		gitRepo.AssertExpectations(t)
+	})
 }
 
 func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {

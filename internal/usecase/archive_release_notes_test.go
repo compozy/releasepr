@@ -26,6 +26,10 @@ func (s *archiveGitRepoStub) CommitsSinceTag(context.Context, string) (int, erro
 	return 0, nil
 }
 
+func (s *archiveGitRepoStub) CommitMessagesSinceRelease(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *archiveGitRepoStub) TagExists(context.Context, string) (bool, error) {
 	return false, nil
 }

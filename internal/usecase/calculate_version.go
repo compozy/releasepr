@@ -31,5 +31,17 @@ func (uc *CalculateVersionUseCase) Execute(ctx context.Context) (*domain.Version
 			latestTag = "v0.0.0" // Default fallback
 		}
 	}
-	return uc.CliffSvc.CalculateNextVersion(ctx, latestTag)
+	computed, err := uc.CliffSvc.CalculateNextVersion(ctx, latestTag)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := uc.GitRepo.CommitMessagesSinceRelease(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read release-as declarations: %w", err)
+	}
+	declared, err := domain.ReleaseAsVersion(messages)
+	if err != nil {
+		return nil, err
+	}
+	return domain.ResolveReleaseAs(computed, declared)
 }

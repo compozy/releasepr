@@ -24,7 +24,6 @@ type releasePlanGitRepositoryStub struct {
 	headErr        error
 	tagErr         error
 	previousTagErr error
-	includePreview bool
 	excludeTag     string
 }
 
@@ -43,10 +42,8 @@ func (s *releasePlanGitRepositoryStub) ReleaseTagCommit(context.Context, string)
 func (s *releasePlanGitRepositoryStub) PreviousReleaseTag(
 	_ context.Context,
 	_ string,
-	includePrereleases bool,
 	excludeTag string,
 ) (string, error) {
-	s.includePreview = includePrereleases
 	s.excludeTag = excludeTag
 	return s.previousTag, s.previousTagErr
 }
@@ -73,27 +70,28 @@ func TestPlanReleaseUseCase_Execute(t *testing.T) {
 		assert.Equal(t, "v0.3.0-beta.1", plan.Tag)
 		assert.Equal(t, "v0.3.0-beta.0", plan.PreviousTag)
 		assert.Equal(t, "v0.3.0-beta.0..0123456789abcdef", plan.GitRange)
-		assert.True(t, repo.includePreview)
 		assert.Equal(t, "v0.3.0-beta.1", repo.excludeTag)
 	})
 
-	t.Run("Should exclude prereleases when resolving a stable predecessor", func(t *testing.T) {
+	t.Run("Should scope a stable release to the range after its prerelease predecessor", func(t *testing.T) {
 		t.Parallel()
 
 		repo := &releasePlanGitRepositoryStub{
 			resolvedCommit: "0123456789abcdef",
 			headCommit:     "0123456789abcdef",
-			previousTag:    "v0.2.15",
+			previousTag:    "v0.3.0-beta.38",
 		}
 		uc := NewPlanReleaseUseCase(repo)
 		plan, err := uc.Execute(t.Context(), PlanReleaseInput{
 			Ref:     "main",
-			Version: "0.3.0",
+			Version: "0.4.0",
 			Channel: domain.ReleaseChannelStable,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "v0.2.15", plan.PreviousTag)
-		assert.False(t, repo.includePreview)
+		assert.Equal(t, "v0.3.0-beta.38", plan.PreviousTag)
+		assert.Equal(t, "v0.3.0-beta.38..0123456789abcdef", plan.GitRange)
+		assert.False(t, plan.GitHubPrerelease)
+		assert.Equal(t, "v0.4.0", repo.excludeTag)
 	})
 
 	t.Run("Should reject a ref that does not resolve to HEAD", func(t *testing.T) {

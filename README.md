@@ -138,10 +138,10 @@ The command is read-only. It requires the ref to resolve to the checked-out
 `HEAD`, rejects an existing local or remote tag, derives `v0.3.0-beta.1` once,
 and returns the version, tag, commit, predecessor tag, Git range, and
 publication policy as JSON. The version must be strict SemVer without a
-leading `v`. Beta plans consider prerelease tags when selecting the nearest
-predecessor on the first-parent release line; stable and legacy plans consider
-stable tags only. `initial_release` is true only when that line has no matching
-predecessor.
+leading `v`. Every channel selects the nearest strict semantic-version tag on
+the first-parent release line, prereleases included, so a stable release that
+follows a beta line publishes only the changes since the last beta.
+`initial_release` is true only when that line has no matching predecessor.
 
 For an explicit retry after tag creation, add `--allow-existing-tag`. Recovery
 is accepted only when the existing local or remote tag is annotated and

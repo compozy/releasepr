@@ -271,7 +271,7 @@ func TestGitRepository_ResolveRevision(t *testing.T) {
 }
 
 func TestGitRepository_PreviousReleaseTag(t *testing.T) {
-	t.Run("Should select the nearest reachable tag according to channel policy", func(t *testing.T) {
+	t.Run("Should select the nearest reachable tag including prereleases", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
 		initial, err := repo.Head()
 		require.NoError(t, err)
@@ -298,12 +298,9 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		_, err = repo.CreateTag("vpreview", targetCommit, nil)
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		betaTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), true, "")
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), "")
 		require.NoError(t, err)
-		assert.Equal(t, "v1.1.0-beta.1", betaTag)
-		stableTag, err := gitRepo.PreviousReleaseTag(t.Context(), targetCommit.String(), false, "")
-		require.NoError(t, err)
-		assert.Equal(t, "v1.0.0", stableTag)
+		assert.Equal(t, "v1.1.0-beta.1", tag)
 	})
 
 	t.Run("Should return an empty predecessor when no semantic release tag is reachable", func(t *testing.T) {
@@ -311,7 +308,7 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		head, err := repo.Head()
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		tag, err := gitRepo.PreviousReleaseTag(t.Context(), head.Hash().String(), true, "")
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), head.Hash().String(), "")
 		require.NoError(t, err)
 		assert.Empty(t, tag)
 	})
@@ -330,7 +327,6 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		tag, err := gitRepo.PreviousReleaseTag(
 			t.Context(),
 			target.String(),
-			true,
 			"v1.0.0-beta.2",
 		)
 		require.NoError(t, err)
@@ -362,7 +358,7 @@ func TestGitRepository_PreviousReleaseTag(t *testing.T) {
 		})
 		require.NoError(t, err)
 		gitRepo := &gitRepository{repo: repo}
-		tag, err := gitRepo.PreviousReleaseTag(t.Context(), mergeCommit.String(), false, "")
+		tag, err := gitRepo.PreviousReleaseTag(t.Context(), mergeCommit.String(), "")
 		require.NoError(t, err)
 		assert.Equal(t, "v1.0.0", tag)
 	})
@@ -386,6 +382,33 @@ func commitFixtureWithParents(
 	})
 	require.NoError(t, err)
 	return commit
+}
+
+func TestGitRepository_CommitMessagesSinceRelease(t *testing.T) {
+	t.Run("Should return only messages after the nearest release tag, prereleases included", func(t *testing.T) {
+		dir, repo := setupTestRepo(t)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		base, err := repo.Head()
+		require.NoError(t, err)
+		_, err = repo.CreateTag("v1.0.0", base.Hash(), nil)
+		require.NoError(t, err)
+		beta := commitFixtureWithParents(t, dir, wt, "beta", "feat: beta\n\nRelease-As: 9.0.0", base.Hash())
+		_, err = repo.CreateTag("v1.1.0-beta.1", beta, nil)
+		require.NoError(t, err)
+		commitFixtureWithParents(t, dir, wt, "stable", "build: leave beta\n\nRelease-As: 2.0.0", beta)
+		gitRepo := &gitRepository{repo: repo}
+		messages, err := gitRepo.CommitMessagesSinceRelease(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"build: leave beta\n\nRelease-As: 2.0.0"}, messages)
+	})
+	t.Run("Should return the whole history when no release tag is reachable", func(t *testing.T) {
+		_, repo := setupTestRepo(t)
+		gitRepo := &gitRepository{repo: repo}
+		messages, err := gitRepo.CommitMessagesSinceRelease(t.Context())
+		require.NoError(t, err)
+		assert.NotEmpty(t, messages)
+	})
 }
 
 func TestGitRepository_AddedFiles(t *testing.T) {

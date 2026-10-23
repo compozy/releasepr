@@ -8,7 +8,10 @@ import (
 )
 
 // Mock for GitExtendedRepository - implements ALL methods from GitExtendedRepository interface
-type mockGitExtendedRepository struct{ mock.Mock }
+type mockGitExtendedRepository struct {
+	mock.Mock
+	releaseMessages []string
+}
 
 // GitRepository methods
 func (m *mockGitExtendedRepository) LatestTag(ctx context.Context) (string, error) {
@@ -18,6 +21,9 @@ func (m *mockGitExtendedRepository) LatestTag(ctx context.Context) (string, erro
 func (m *mockGitExtendedRepository) CommitsSinceTag(ctx context.Context, tag string) (int, error) {
 	args := m.Called(ctx, tag)
 	return args.Int(0), args.Error(1)
+}
+func (m *mockGitExtendedRepository) CommitMessagesSinceRelease(context.Context) ([]string, error) {
+	return m.releaseMessages, nil
 }
 func (m *mockGitExtendedRepository) TagExists(ctx context.Context, tag string) (bool, error) {
 	args := m.Called(ctx, tag)

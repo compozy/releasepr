@@ -15,6 +15,28 @@ using `git-cliff` (config: `cliff.toml` in the repo). Use Conventional Commits:
 If no commit since the last tag warrants a bump, no release PR is produced.
 Force a release anyway with `pr-release pr-release --force`.
 
+## Declaring the next version with `Release-As`
+
+When the next version is a product decision rather than a commit-type bump
+(for example, the first stable release after a beta line), add a
+`Release-As: X.Y.Z` footer to any commit after the nearest release tag:
+
+```text
+build: declare the first stable release
+
+Release-As: 0.4.0
+```
+
+- The footer is case-insensitive, accepts an optional `v`, and must be strict
+  SemVer.
+- It replaces the `git-cliff` bump only when it is not lower than the computed
+  version; a lower value fails the release-PR job.
+- All footers in the range must agree; conflicting values fail the job.
+- Squash merges keep the footer when the squash message includes commit
+  messages; otherwise put the footer in the squash commit body.
+- Once the declared version is tagged, the footer falls behind the new tag and
+  stops applying. Never fake a `BREAKING CHANGE` to force a version.
+
 Reserve commits whose subject starts with `build: release ` on the default
 branch for generated release PRs — that prefix triggers the production release
 job (see `release-workflow.md`).
@@ -51,8 +73,9 @@ pr-release add-note --title "Drop Node 16" --type breaking --body "Node 18+ requ
 
 Explicit releases use `release-body` instead of reusing `RELEASE_BODY.md`.
 The command scopes both `git-cliff` commits and custom notes to the
-`release_git_range` emitted by `plan`, so successive prereleases stay
-incremental while the conventional stable release artifacts remain cumulative.
+`release_git_range` emitted by `plan`, so every published release, including
+the first stable after a beta line, stays incremental. The committed
+`CHANGELOG.md` follows the consumer's `cliff.toml` tag filters.
 
 Archiving is transactional: a move failure rolls back prior moves. Do not
 manually move files out of `.release-notes/` mid-release — let the tool archive

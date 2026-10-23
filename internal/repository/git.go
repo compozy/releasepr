@@ -7,6 +7,7 @@ import "context"
 type GitRepository interface {
 	LatestTag(ctx context.Context) (string, error)
 	CommitsSinceTag(ctx context.Context, tag string) (int, error)
+	CommitMessagesSinceRelease(ctx context.Context) ([]string, error)
 	TagExists(ctx context.Context, tag string) (bool, error)
 	CreateBranch(ctx context.Context, name string) error
 	PushBranch(ctx context.Context, name string) error

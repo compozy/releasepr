@@ -19,7 +19,7 @@ type GitReleasePlanRepository interface {
 	GetHeadCommit(ctx context.Context) (string, error)
 	ResolveRevision(ctx context.Context, ref string) (string, error)
 	ReleaseTagCommit(ctx context.Context, tag string) (commit string, annotated bool, err error)
-	PreviousReleaseTag(ctx context.Context, commit string, includePrereleases bool, excludeTag string) (string, error)
+	PreviousReleaseTag(ctx context.Context, commit string, excludeTag string) (string, error)
 }
 
 // GitReleaseBodyRepository exposes read-only Git facts used to render an explicit release body.
@@ -136,17 +136,16 @@ func (r *gitRepository) ResolveRevision(ctx context.Context, ref string) (string
 	return hash.String(), nil
 }
 
-// PreviousReleaseTag returns the nearest reachable strict semantic-version tag.
+// PreviousReleaseTag returns the nearest first-parent strict semantic-version tag, prereleases included.
 func (r *gitRepository) PreviousReleaseTag(
 	ctx context.Context,
 	commit string,
-	includePrereleases bool,
 	excludeTag string,
 ) (string, error) {
 	if _, err := r.ResolveRevision(ctx, commit); err != nil {
 		return "", err
 	}
-	tags, err := r.mergedReleaseTags(ctx, commit, includePrereleases, excludeTag)
+	tags, err := r.mergedReleaseTags(ctx, commit, excludeTag)
 	if err != nil || len(tags) == 0 {
 		return "", err
 	}
@@ -169,10 +168,37 @@ func (r *gitRepository) PreviousReleaseTag(
 	return strings.TrimSpace(output), nil
 }
 
+// CommitMessagesSinceRelease returns the full messages of HEAD commits after the nearest release tag.
+// Without a reachable release tag, every commit reachable from HEAD is returned.
+func (r *gitRepository) CommitMessagesSinceRelease(ctx context.Context) ([]string, error) {
+	head, err := r.ResolveRevision(ctx, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	previousTag, err := r.PreviousReleaseTag(ctx, head, "")
+	if err != nil {
+		return nil, err
+	}
+	revision := head
+	if previousTag != "" {
+		revision = previousTag + ".." + head
+	}
+	output, err := r.runReadOnlyGit(ctx, "log", "--format=%B%x00", revision)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read commit messages since %q: %w", previousTag, err)
+	}
+	messages := make([]string, 0)
+	for _, message := range strings.Split(output, "\x00") {
+		if trimmed := strings.TrimSpace(message); trimmed != "" {
+			messages = append(messages, trimmed)
+		}
+	}
+	return messages, nil
+}
+
 func (r *gitRepository) mergedReleaseTags(
 	ctx context.Context,
 	commit string,
-	includePrereleases bool,
 	excludeTag string,
 ) ([]string, error) {
 	output, err := r.runReadOnlyGit(ctx, "tag", "--merged", commit, "--list", "v*")
@@ -184,11 +210,8 @@ func (r *gitRepository) mergedReleaseTags(
 		if tag == excludeTag {
 			continue
 		}
-		version, parseErr := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
-		if parseErr != nil || !strings.HasPrefix(tag, "v") {
-			continue
-		}
-		if !includePrereleases && version.Prerelease() != "" {
+		if _, parseErr := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); parseErr != nil ||
+			!strings.HasPrefix(tag, "v") {
 			continue
 		}
 		tags = append(tags, tag)
