@@ -1,7 +1,13 @@
-## 0.0.29 - 2026-08-20
+## 0.0.30 - 2026-10-23
 
 
 
-### 🐛 Bug Fixes
+### 🎉 Features
 
-- Bound release pull request bodies
+- Scope stable releases after betas and honor Release-As footers
+
+
+
+### 🔧 CI/CD
+
+- Drop the unused npm authentication gate
