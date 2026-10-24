@@ -7,6 +7,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/compozy/releasepr/internal/config"
@@ -86,6 +87,63 @@ This belongs to the prior stable line.
 		assert.Contains(t, body, "Add beta releases")
 		assert.Contains(t, body, "##### The OS release")
 		assert.NotContains(t, body, "Legacy fix")
+	})
+
+	t.Run("Should consume pending notes regardless of their age and exclude historical archives", func(t *testing.T) {
+		t.Parallel()
+		fsRepo := afero.NewMemMapFs()
+		files := map[string]string{
+			".release-notes/stable.md":               "Pending stable warning",
+			".release-notes/archive/v0.4.0/old.md":   "Already archived warning",
+			".release-notes/archive/v0.3.0/other.md": "Other core warning",
+		}
+		for path, title := range files {
+			require.NoError(t, fsRepo.MkdirAll(filepath.Dir(path), 0755))
+			body := "---\ntitle: " + title + "\ntype: highlight\n---\nMigration guidance.\n"
+			require.NoError(t, afero.WriteFile(fsRepo, path, []byte(body), 0644))
+		}
+		cliff := &releaseBodyCliffStub{changelog: "## 0.4.0\n\n- Current delta"}
+		gitRepo := &releaseBodyGitStub{paths: []string{".release-notes/archive/v0.3.0/other.md"}}
+		uc := NewRenderReleaseBodyUseCase(gitRepo, fsRepo, cliff)
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
+			Tag: "v0.4.0", GitRange: "v0.3.0-beta.39..HEAD",
+		})
+		require.NoError(t, err)
+		assert.Contains(t, body, "Pending stable warning")
+		assert.Contains(t, body, "Current delta")
+		assert.NotContains(t, body, "Already archived warning")
+		assert.NotContains(t, body, "Other core warning")
+		require.NoError(t, fsRepo.Rename(
+			".release-notes/stable.md", ".release-notes/archive/v0.4.0/stable.md",
+		))
+		gitRepo.paths = append(gitRepo.paths, ".release-notes/archive/v0.4.0/stable.md")
+		publishedBody, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
+			Tag: "v0.4.0", GitRange: "v0.3.0-beta.39..release-commit",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, body, publishedBody)
+	})
+
+	t.Run("Should preserve initial release notes after preparation archives them", func(t *testing.T) {
+		t.Parallel()
+		fsRepo := afero.NewMemMapFs()
+		require.NoError(t, fsRepo.MkdirAll(".release-notes/archive/v1.0.0", 0755))
+		require.NoError(t, fsRepo.MkdirAll(".release-notes/archive/v0.9.0", 0755))
+		note := []byte("---\ntitle: First release\ntype: highlight\n---\nInitial guidance.\n")
+		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/first.md", note, 0644))
+		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/archive/v0.9.0/other.md",
+			[]byte("---\ntitle: Other core\ntype: highlight\n---\nOld guidance.\n"), 0644))
+		cliff := &releaseBodyCliffStub{changelog: "## 1.0.0\n\n- Initial changes"}
+		uc := NewRenderReleaseBodyUseCase(&releaseBodyGitStub{}, fsRepo, cliff)
+		input := RenderReleaseBodyInput{Tag: "v1.0.0", Initial: true}
+		before, err := uc.Execute(testRenderReleaseBodyContext(t), input)
+		require.NoError(t, err)
+		require.NoError(t, fsRepo.Rename(".release-notes/first.md", ".release-notes/archive/v1.0.0/first.md"))
+		after, err := uc.Execute(testRenderReleaseBodyContext(t), input)
+		require.NoError(t, err)
+		assert.Contains(t, after, "Initial guidance.")
+		assert.NotContains(t, after, "Old guidance.")
+		assert.Equal(t, before, after)
 	})
 
 	t.Run("Should render only the changelog when the range adds no custom notes", func(t *testing.T) {
