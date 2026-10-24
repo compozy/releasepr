@@ -153,9 +153,9 @@ func TestPRReleaseOrchestrator_releaseRange(t *testing.T) {
 		name     string
 		previous string
 	}{
-		{"stable after beta", "v0.4.0-beta.2"},
-		{"stable after bridge", "v0.3.0-beta.39"},
-		{"initial release", ""},
+		{"Should scope stable notes after beta", "v0.4.0-beta.2"},
+		{"Should scope stable notes after bridge", "v0.3.0-beta.39"},
+		{"Should render an initial release", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testReleaseContext(t)
