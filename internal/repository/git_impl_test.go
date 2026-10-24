@@ -494,7 +494,7 @@ func TestGitRepository_CommitMessagesSinceStableRelease(t *testing.T) {
 }
 
 func TestGitRepository_AddedFiles(t *testing.T) {
-	t.Run("Should include introduced notes and exclude notes only moved inside the range", func(t *testing.T) {
+	t.Run("Should include newly archived pending notes as destination additions", func(t *testing.T) {
 		dir, repo := setupTestRepo(t)
 		wt, err := repo.Worktree()
 		require.NoError(t, err)
@@ -530,7 +530,10 @@ func TestGitRepository_AddedFiles(t *testing.T) {
 			".release-notes",
 		)
 		require.NoError(t, err)
-		assert.Equal(t, []string{".release-notes/archive/v1.1.0/new.md"}, paths)
+		assert.Equal(t, []string{
+			".release-notes/archive/v1.1.0/existing.md",
+			".release-notes/archive/v1.1.0/new.md",
+		}, paths)
 	})
 }
 

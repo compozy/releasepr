@@ -180,8 +180,10 @@ pr-release release-body \
 ```
 
 The command writes Markdown only to stdout. `git-cliff` receives the exact
-range, and custom notes are limited to files introduced in that range for the
-target core version. When `release_initial` is true, pass `--initial` instead
+range. Custom notes include every pending file in `.release-notes/`, even when
+added before the predecessor, plus notes moved into the target core archive
+within that range by release preparation. Previously archived notes and other
+cores are excluded. This keeps PR and publication bodies identical after archival. When `release_initial` is true, pass `--initial` instead
 of `--range`; omitting both selectors fails closed.
 
 ### From source (optional)

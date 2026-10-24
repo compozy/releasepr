@@ -7,6 +7,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/compozy/releasepr/internal/config"
@@ -86,6 +87,41 @@ This belongs to the prior stable line.
 		assert.Contains(t, body, "Add beta releases")
 		assert.Contains(t, body, "##### The OS release")
 		assert.NotContains(t, body, "Legacy fix")
+	})
+
+	t.Run("Should consume pending notes regardless of their age and exclude historical archives", func(t *testing.T) {
+		t.Parallel()
+		fsRepo := afero.NewMemMapFs()
+		files := map[string]string{
+			".release-notes/stable.md":               "Pending stable warning",
+			".release-notes/archive/v0.4.0/old.md":   "Already archived warning",
+			".release-notes/archive/v0.3.0/other.md": "Other core warning",
+		}
+		for path, title := range files {
+			require.NoError(t, fsRepo.MkdirAll(filepath.Dir(path), 0755))
+			body := "---\ntitle: " + title + "\ntype: highlight\n---\nMigration guidance.\n"
+			require.NoError(t, afero.WriteFile(fsRepo, path, []byte(body), 0644))
+		}
+		cliff := &releaseBodyCliffStub{changelog: "## 0.4.0\n\n- Current delta"}
+		gitRepo := &releaseBodyGitStub{paths: []string{".release-notes/archive/v0.3.0/other.md"}}
+		uc := NewRenderReleaseBodyUseCase(gitRepo, fsRepo, cliff)
+		body, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
+			Tag: "v0.4.0", GitRange: "v0.3.0-beta.39..HEAD",
+		})
+		require.NoError(t, err)
+		assert.Contains(t, body, "Pending stable warning")
+		assert.Contains(t, body, "Current delta")
+		assert.NotContains(t, body, "Already archived warning")
+		assert.NotContains(t, body, "Other core warning")
+		require.NoError(t, fsRepo.Rename(
+			".release-notes/stable.md", ".release-notes/archive/v0.4.0/stable.md",
+		))
+		gitRepo.paths = append(gitRepo.paths, ".release-notes/archive/v0.4.0/stable.md")
+		publishedBody, err := uc.Execute(testRenderReleaseBodyContext(t), RenderReleaseBodyInput{
+			Tag: "v0.4.0", GitRange: "v0.3.0-beta.39..release-commit",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, body, publishedBody)
 	})
 
 	t.Run("Should render only the changelog when the range adds no custom notes", func(t *testing.T) {

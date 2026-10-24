@@ -92,17 +92,21 @@ func (uc *RenderReleaseBodyUseCase) collectNotes(
 ) (*domain.ReleaseNotesCollection, error) {
 	collector := &CollectReleaseNotesUseCase{FSRepo: uc.fsRepo}
 	if gitRange == "" {
-		return collector.Execute(ctx, coreTag)
+		return collector.Execute(ctx, "")
 	}
-	paths, err := uc.gitRepo.AddedFiles(ctx, gitRange, releaseNotesDir)
+	paths, err := collector.releaseNotePaths("")
+	if err != nil {
+		return nil, err
+	}
+	archivedPaths, err := uc.gitRepo.AddedFiles(ctx, gitRange, releaseNotesDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve release-note range: %w", err)
 	}
-	return collector.collectPaths(ctx, releaseNotePathsForCore(paths, coreTag))
+	paths = append(paths, releaseNotePathsForCore(archivedPaths, coreTag)...)
+	return collector.collectPaths(ctx, paths)
 }
 
 func releaseNotePathsForCore(paths []string, coreTag string) []string {
-	activeDir := filepath.Clean(releaseNotesDir)
 	archiveDir := filepath.Clean(releaseNotesArchiveDir(coreTag))
 	filtered := make([]string, 0, len(paths))
 	for _, path := range paths {
@@ -111,7 +115,7 @@ func releaseNotePathsForCore(paths []string, coreTag string) []string {
 			continue
 		}
 		parent := filepath.Dir(cleanPath)
-		if parent == activeDir || parent == archiveDir {
+		if parent == archiveDir {
 			filtered = append(filtered, cleanPath)
 		}
 	}

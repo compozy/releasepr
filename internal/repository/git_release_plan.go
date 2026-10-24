@@ -246,7 +246,7 @@ func (r *gitRepository) AddedFiles(ctx context.Context, gitRange, pathspec strin
 		"--name-only",
 		"-z",
 		"--diff-filter=A",
-		"--find-renames",
+		"--no-renames",
 		gitRange,
 		"--",
 		pathspec,
