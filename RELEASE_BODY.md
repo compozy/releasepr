@@ -1,7 +1,7 @@
-## 0.0.32 - 2026-10-23
+## 0.0.33 - 2026-10-24
 
 
 
 ### 🐛 Bug Fixes
 
-- Recognize bridge tags when selecting release predecessors (#22)
+- Scope release PR notes to the planned predecessor (#24)
