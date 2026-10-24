@@ -92,7 +92,7 @@ func (uc *RenderReleaseBodyUseCase) collectNotes(
 ) (*domain.ReleaseNotesCollection, error) {
 	collector := &CollectReleaseNotesUseCase{FSRepo: uc.fsRepo}
 	if gitRange == "" {
-		return collector.Execute(ctx, "")
+		return collector.Execute(ctx, coreTag)
 	}
 	paths, err := collector.releaseNotePaths("")
 	if err != nil {

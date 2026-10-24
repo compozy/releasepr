@@ -124,6 +124,28 @@ This belongs to the prior stable line.
 		assert.Equal(t, body, publishedBody)
 	})
 
+	t.Run("Should preserve initial release notes after preparation archives them", func(t *testing.T) {
+		t.Parallel()
+		fsRepo := afero.NewMemMapFs()
+		require.NoError(t, fsRepo.MkdirAll(".release-notes/archive/v1.0.0", 0755))
+		require.NoError(t, fsRepo.MkdirAll(".release-notes/archive/v0.9.0", 0755))
+		note := []byte("---\ntitle: First release\ntype: highlight\n---\nInitial guidance.\n")
+		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/first.md", note, 0644))
+		require.NoError(t, afero.WriteFile(fsRepo, ".release-notes/archive/v0.9.0/other.md",
+			[]byte("---\ntitle: Other core\ntype: highlight\n---\nOld guidance.\n"), 0644))
+		cliff := &releaseBodyCliffStub{changelog: "## 1.0.0\n\n- Initial changes"}
+		uc := NewRenderReleaseBodyUseCase(&releaseBodyGitStub{}, fsRepo, cliff)
+		input := RenderReleaseBodyInput{Tag: "v1.0.0", Initial: true}
+		before, err := uc.Execute(testRenderReleaseBodyContext(t), input)
+		require.NoError(t, err)
+		require.NoError(t, fsRepo.Rename(".release-notes/first.md", ".release-notes/archive/v1.0.0/first.md"))
+		after, err := uc.Execute(testRenderReleaseBodyContext(t), input)
+		require.NoError(t, err)
+		assert.Contains(t, after, "Initial guidance.")
+		assert.NotContains(t, after, "Old guidance.")
+		assert.Equal(t, before, after)
+	})
+
 	t.Run("Should render only the changelog when the range adds no custom notes", func(t *testing.T) {
 		t.Parallel()
 
