@@ -31,10 +31,10 @@ type PRReleaseConfig struct {
 
 // PRReleaseOrchestrator orchestrates the entire PR release workflow.
 type PRReleaseOrchestrator struct {
-	gitRepo        repository.GitExtendedRepository
+	gitRepo        repository.GitOrchestrationRepository
 	githubRepo     repository.GithubExtendedRepository
 	fsRepo         repository.FileSystemRepository
-	cliffSvc       service.CliffService
+	cliffSvc       service.FullCliffService
 	npmSvc         service.NpmService
 	stateRepo      repository.StateRepository
 	artifactRunner releaseArtifactCommandRunner
@@ -47,10 +47,10 @@ type releaseArtifacts struct {
 
 // NewPRReleaseOrchestrator creates a new PR release orchestrator.
 func NewPRReleaseOrchestrator(
-	gitRepo repository.GitExtendedRepository,
+	gitRepo repository.GitOrchestrationRepository,
 	githubRepo repository.GithubExtendedRepository,
 	fsRepo repository.FileSystemRepository,
-	cliffSvc service.CliffService,
+	cliffSvc service.FullCliffService,
 	npmSvc service.NpmService,
 ) *PRReleaseOrchestrator {
 	// Initialize state repository for rollback support
@@ -273,23 +273,13 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 	ctx context.Context,
 	version string,
 ) (*releaseArtifacts, error) {
-	uc := &usecase.GenerateChangelogUseCase{
-		CliffSvc: o.cliffSvc,
-	}
-	changelog, err := uc.Execute(ctx, version, "release")
+	changelog, releaseNotes, err := o.renderReleaseNotes(ctx, version)
 	if err != nil {
 		return nil, err
 	}
 	fullChangelog, err := o.cliffSvc.GenerateFullChangelog(ctx, version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build complete changelog: %w", err)
-	}
-	collectUC := &usecase.CollectReleaseNotesUseCase{
-		FSRepo: o.fsRepo,
-	}
-	collection, err := collectUC.Execute(ctx, version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect release notes: %w", err)
 	}
 	if err := afero.WriteFile(
 		o.fsRepo,
@@ -303,7 +293,6 @@ func (o *PRReleaseOrchestrator) generateChangelog(
 	if err != nil {
 		return nil, fmt.Errorf("failed to read existing release notes: %w", err)
 	}
-	releaseNotes := collection.RenderMarkdown()
 	releaseBodyDocument := domain.BuildReleaseBody(changelog, releaseNotes)
 	releaseNotesDocument := buildHistoricalReleaseNotesDocument(version, releaseBodyDocument, previousReleaseNotes)
 	if err := afero.WriteFile(
