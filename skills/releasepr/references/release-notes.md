@@ -8,6 +8,14 @@ using `git-cliff` (config: `cliff.toml` in the repo). Use Conventional Commits:
 - `fix: ...` → patch bump.
 - `feat: ...` → minor bump.
 - `feat!: ...` or a `BREAKING CHANGE:` footer / `!` after the type → major bump.
+
+The consuming repo's `cliff.toml` `[bump]` section can change this while the
+major version is 0. With `features_always_bump_minor = false` and
+`breaking_always_bump_major = false` (the npm/Cargo caret convention), `feat:`
+bumps the patch and breaking changes bump the minor. A
+`custom_minor_increment_regex` that matches `feat` forces a minor bump and
+overrides `features_always_bump_minor`; drop it when features should bump the
+patch. Check the result with `git cliff --bumped-version`.
 - Other types (`chore:`, `docs:`, `refactor:`, `test:`, `ci:`, `build:`,
   `perf:`, `style:`) are grouped in the changelog per `cliff.toml` and
   generally do not force a higher bump on their own.
@@ -90,4 +98,5 @@ them.
 - Add `add-note` entries for cross-cutting or user-facing highlights that
   deserve prose beyond a one-line commit.
 - Use `breaking` notes (and `feat!:` / `BREAKING CHANGE:`) deliberately — they
-  drive a major bump and headline the release.
+  drive a major bump (a minor bump on 0.x when `breaking_always_bump_major =
+  false`) and headline the release.

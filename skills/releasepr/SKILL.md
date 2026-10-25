@@ -101,6 +101,8 @@ Conventional-commit prefixes drive the version bump — wrong prefixes mean wron
 versions or "no changes":
 
 - `fix:` → patch · `feat:` → minor · `feat!:` / `BREAKING CHANGE:` → major.
+  On 0.x the repo's `cliff.toml` `[bump]` may shift this down one level
+  (feat → patch, breaking → minor).
 - A commit subject starting with `build: release ` merged to the default branch
   triggers the **production release** — reserve it for generated release PRs.
 - Bot commits and `Merge pull request` commits are skipped by the release-PR job.
