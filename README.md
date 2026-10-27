@@ -280,3 +280,8 @@ GitHub merge subject with the matching release branch and title, and its tag is
 not yet available locally, `pr-release` logs that it is waiting for the tag and
 exits without preparing another same-version PR. This also applies with `--force`.
 Consumer workflows should still avoid triggering release preparation on release merges.
+
+This repository's release workflow accepts both `build: release v<semver>` and
+`build: prepare release v<semver>` merge subjects. GitHub may use the latter when
+squashing a single-commit release PR. Both subjects trigger publication and are
+excluded from release-PR preparation.
