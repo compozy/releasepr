@@ -126,6 +126,9 @@ func (o *PRReleaseOrchestrator) executeLegacy(ctx context.Context, cfg PRRelease
 	if err != nil {
 		return err
 	}
+	if version == "" {
+		return nil
+	}
 	// Step 3: Update code and create PR
 	return o.updateAndCreatePR(ctx, version, branchName, latestTag, cfg)
 }
@@ -143,6 +146,13 @@ func (o *PRReleaseOrchestrator) prepareRelease(
 	// Validate version format
 	if err := ValidateVersion(version); err != nil {
 		return "", "", fmt.Errorf("invalid version: %w", err)
+	}
+	skip, err := o.releaseAlreadyMerged(ctx, version)
+	if err != nil {
+		return "", "", err
+	}
+	if skip {
+		return "", "", nil
 	}
 	o.logCI(ctx, ciOutput, zap.String("version", version))
 	branchName := fmt.Sprintf("release/%s", version)
@@ -180,6 +190,11 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 
 	// Dry-run: stop here so no commit, push or PR is made.
 	if cfg.DryRun {
+		if !cfg.SkipPR {
+			if err := o.supersedeReleasePRs(ctx, branchName, true); err != nil {
+				return err
+			}
+		}
 		o.logStatus(ctx, cfg.CIOutput,
 			fmt.Sprintf("🛈 Dry-run complete – release %s prepared locally (no commit/push/PR).", version))
 		return nil
@@ -203,6 +218,11 @@ func (o *PRReleaseOrchestrator) updateAndCreatePR(
 			branchName,
 		); err != nil {
 			return fmt.Errorf("failed to create pull request: %w", err)
+		}
+	}
+	if !cfg.SkipPR {
+		if err := o.supersedeReleasePRs(ctx, branchName, false); err != nil {
+			return err
 		}
 	}
 	o.logStatus(ctx, cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", version))
@@ -523,6 +543,15 @@ func (o *PRReleaseOrchestrator) buildAndExecuteWorkflow(
 		return fmt.Errorf("workflow failed: %w", err)
 	}
 
+	if wctx.version == "" {
+		return nil
+	}
+	// Supersession is post-commit cleanup: failures must preserve the published replacement PR.
+	if !cfg.SkipPR {
+		if err := o.supersedeReleasePRs(ctx, wctx.branchName, cfg.DryRun); err != nil {
+			return err
+		}
+	}
 	o.logStatus(ctx, cfg.CIOutput, fmt.Sprintf("✅ Release PR workflow completed for version %s", wctx.version))
 	return nil
 }
@@ -595,6 +624,14 @@ func (o *PRReleaseOrchestrator) addCalculateVersionStep(
 			if err := ValidateVersion(wctx.version); err != nil {
 				o.logger(ctx).Error("Invalid version", zap.String("version", wctx.version), zap.Error(err))
 				return nil, fmt.Errorf("invalid version: %w", err)
+			}
+			skip, err := o.releaseAlreadyMerged(ctx, wctx.version)
+			if err != nil {
+				return nil, err
+			}
+			if skip {
+				wctx.version = ""
+				return map[string]any{sagaStepSkipKey: true}, nil
 			}
 			o.logger(ctx).Info("Calculated version", zap.String("version", wctx.version))
 			o.logCI(ctx, cfg.CIOutput, zap.String("version", wctx.version))

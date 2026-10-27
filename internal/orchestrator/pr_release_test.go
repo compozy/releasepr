@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/compozy/releasepr/internal/config"
 	"github.com/compozy/releasepr/internal/domain"
 	"github.com/compozy/releasepr/internal/logger"
+	"github.com/compozy/releasepr/internal/repository"
 	"github.com/compozy/releasepr/internal/usecase"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +60,9 @@ Only this release needs these notes.
 `), 0644))
 		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
 		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v1.1.0").Return("", nil)
-		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v1.1.0", "", true).
+			Return(scopedChangelog, nil).
+			Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v1.1.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		artifacts, err := orch.generateChangelog(ctx, "v1.1.0")
@@ -98,7 +102,9 @@ Only this release needs these notes.
 		fullChangelog := "# Changelog\n\n" + scopedChangelog
 		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
 		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v2.0.0").Return("", nil)
-		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).
+			Return(scopedChangelog, nil).
+			Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		artifacts, err := orch.generateChangelog(ctx, "v2.0.0")
@@ -130,7 +136,9 @@ Only this release needs these notes.
 		require.NoError(t, afero.WriteFile(fsRepo, "RELEASE_NOTES.md", []byte(previousReleaseNotes), 0644))
 		gitRepo.On("ResolveRevision", mock.Anything, "HEAD").Return(strings.Repeat("a", 40), nil)
 		gitRepo.On("PreviousReleaseTag", mock.Anything, strings.Repeat("a", 40), "v2.0.0").Return("", nil)
-		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).Return(scopedChangelog, nil).Once()
+		cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v2.0.0", "", true).
+			Return(scopedChangelog, nil).
+			Once()
 		cliffSvc.On("GenerateFullChangelog", mock.Anything, "v2.0.0").Return(fullChangelog, nil).Once()
 		orch := NewPRReleaseOrchestrator(gitRepo, githubRepo, fsRepo, cliffSvc, npmSvc)
 		_, err := orch.generateChangelog(ctx, "v2.0.0")
@@ -172,9 +180,17 @@ func TestPRReleaseOrchestrator_releaseRange(t *testing.T) {
 			gitRepo.On("PreviousReleaseTag", mock.Anything, head, "v0.4.0").Return(tc.previous, nil).Once()
 			delta := "## v0.4.0\n\n- Fix bridge smoke"
 			history := "# Changelog\n\n" + delta + "\n\n## v0.3.0-beta.39\n\n- Previous work"
-			cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v0.4.0", gitRange, tc.previous == "").Return(delta, nil).Once()
+			cliffSvc.On("GenerateReleaseBodyChangelog", mock.Anything, "v0.4.0", gitRange, tc.previous == "").
+				Return(delta, nil).
+				Once()
 			cliffSvc.On("GenerateFullChangelog", mock.Anything, "v0.4.0").Return(history, nil).Once()
-			orch := NewPRReleaseOrchestrator(gitRepo, new(mockGithubExtendedRepository), fsRepo, cliffSvc, new(mockNpmService))
+			orch := NewPRReleaseOrchestrator(
+				gitRepo,
+				new(mockGithubExtendedRepository),
+				fsRepo,
+				cliffSvc,
+				new(mockNpmService),
+			)
 			artifacts, err := orch.generateChangelog(ctx, "v0.4.0")
 			require.NoError(t, err)
 			assert.Equal(t, delta, artifacts.changelog)
@@ -459,6 +475,20 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
+		githubRepo.openPRs = []repository.PullRequest{
+			{
+				Number:         20,
+				URL:            "https://github.com/compozy/releasepr/pull/20",
+				Head:           "release/v1.1.0",
+				SameRepository: true,
+				Labels:         []string{"release-pending"},
+			},
+			{Number: 10, Head: "release/v1.0.0", SameRepository: true, Labels: []string{"release-pending"}},
+		}
+		githubRepo.On("AddComment", mock.Anything, 10, "Superseded by https://github.com/compozy/releasepr/pull/20.").
+			Return(nil).
+			Once()
+		githubRepo.On("ClosePR", mock.Anything, 10).Return(nil).Once()
 		cliffSvc := new(mockCliffService)
 		npmSvc := new(mockNpmService)
 
@@ -546,6 +576,20 @@ func TestPRReleaseOrchestrator_Execute(t *testing.T) {
 		fsRepo := afero.NewMemMapFs()
 		gitRepo := new(mockGitExtendedRepository)
 		githubRepo := new(mockGithubExtendedRepository)
+		githubRepo.openPRs = []repository.PullRequest{
+			{
+				Number:         20,
+				URL:            "https://github.com/compozy/releasepr/pull/20",
+				Head:           "release/v1.1.0",
+				SameRepository: true,
+				Labels:         []string{"release-pending"},
+			},
+			{Number: 10, Head: "release/v1.0.0", SameRepository: true, Labels: []string{"release-pending"}},
+		}
+		githubRepo.On("AddComment", mock.Anything, 10, "Superseded by https://github.com/compozy/releasepr/pull/20.").
+			Return(nil).
+			Once()
+		githubRepo.On("ClosePR", mock.Anything, 10).Return(nil).Once()
 		cliffSvc := new(mockCliffService)
 		npmSvc := new(mockNpmService)
 		stateRepo := new(mockStateRepository)
@@ -1619,5 +1663,151 @@ func TestPRReleaseOrchestrator_commitChanges(t *testing.T) {
 		}, addedFiles)
 
 		gitRepo.AssertExpectations(t)
+	})
+}
+
+func TestPRReleaseOrchestrator_SupersedeReleasePRs(t *testing.T) {
+	current := repository.PullRequest{
+		Number:         20,
+		URL:            "https://github.com/compozy/releasepr/pull/20",
+		Head:           "release/v1.2.0",
+		SameRepository: true,
+		Labels:         []string{"release-pending"},
+	}
+	old := repository.PullRequest{
+		Number:         10,
+		Head:           "release/v1.1.0",
+		SameRepository: true,
+		Title:          "build: release v1.1.0",
+	}
+	for _, dryRun := range []bool{false, true} {
+		t.Run(
+			fmt.Sprintf("Should preserve foreign PRs and supersede owned PRs with dry run %t", dryRun),
+			func(t *testing.T) {
+				gh := &mockGithubExtendedRepository{openPRs: []repository.PullRequest{
+					current, old,
+					{Number: 11, Head: "release/v1.0.0", SameRepository: true, Labels: []string{"release-pending"}},
+					{Number: 12, Head: "release/v1.0.0", SameRepository: false, Labels: []string{"release-pending"}},
+					{Number: 13, Head: "feature/test", SameRepository: true, Labels: []string{"release-pending"}},
+					{Number: 14, Head: "release/v1.0.0", SameRepository: true, Title: "User authored change"},
+					{Number: 15, Head: "release/vinvalid", SameRepository: true, Labels: []string{"release-pending"}},
+				}}
+				if !dryRun {
+					for _, number := range []int{10, 11} {
+						comment := gh.On("AddComment", mock.Anything, number, "Superseded by "+current.URL+".").
+							Return(nil).
+							Once()
+						gh.On("ClosePR", mock.Anything, number).Return(nil).Once().NotBefore(comment)
+					}
+				}
+				orch := NewPRReleaseOrchestrator(
+					new(mockGitExtendedRepository),
+					gh,
+					afero.NewMemMapFs(),
+					new(mockCliffService),
+					new(mockNpmService),
+				)
+				require.NoError(t, orch.supersedeReleasePRs(testReleaseContext(t), current.Head, dryRun))
+				gh.AssertExpectations(t)
+				if dryRun {
+					gh.AssertNotCalled(t, "ClosePR", mock.Anything, mock.Anything)
+					gh.AssertNotCalled(t, "AddComment", mock.Anything, mock.Anything, mock.Anything)
+				}
+			},
+		)
+	}
+	t.Run("Should refuse closure without a confirmed replacement", func(t *testing.T) {
+		gh := &mockGithubExtendedRepository{openPRs: []repository.PullRequest{old}}
+		orch := &PRReleaseOrchestrator{githubRepo: gh}
+		require.ErrorContains(t, orch.supersedeReleasePRs(t.Context(), current.Head, false), "replacement PR")
+		gh.AssertNotCalled(t, "ClosePR", mock.Anything, mock.Anything)
+	})
+	for _, operation := range []string{"list", "comment", "close"} {
+		t.Run("Should propagate "+operation+" failure without rolling back replacement", func(t *testing.T) {
+			gh := &mockGithubExtendedRepository{openPRs: []repository.PullRequest{current, old}}
+			failure := errors.New("GitHub unavailable")
+			switch operation {
+			case "list":
+				gh.listPRsError = failure
+			case "comment":
+				gh.On("AddComment", mock.Anything, old.Number, mock.Anything).Return(failure).Once()
+			case "close":
+				gh.On("AddComment", mock.Anything, old.Number, mock.Anything).Return(nil).Once()
+				gh.On("ClosePR", mock.Anything, old.Number).Return(failure).Once()
+			}
+			orch := &PRReleaseOrchestrator{githubRepo: gh}
+			require.ErrorIs(t, orch.supersedeReleasePRs(t.Context(), current.Head, false), failure)
+			gh.AssertNotCalled(t, "ClosePR", mock.Anything, current.Number)
+			gh.AssertExpectations(t)
+		})
+	}
+}
+
+func TestPRReleaseOrchestrator_ReleaseMergeHead(t *testing.T) {
+	for _, saga := range []bool{false, true} {
+		for _, subject := range []string{"build: release v1.1.0", "build: release v1.1.0 (#123)", "build: prepare release v1.1.0", "Merge pull request #123 from compozy/release/v1.1.0\n\nbuild: release v1.1.0"} {
+			t.Run(
+				fmt.Sprintf("Should skip merged release before mutations with saga %t and subject %s", saga, subject),
+				func(t *testing.T) {
+					t.Setenv("GITHUB_TOKEN", "test-token")
+					git := &mockGitExtendedRepository{baseHeadMessage: subject}
+					gh := new(mockGithubExtendedRepository)
+					cliff := new(mockCliffService)
+					if saga {
+						git.On("GetCurrentBranch", mock.Anything).Return("main", nil).Once()
+					}
+					git.On("LatestTag", mock.Anything).Return("v1.0.0", nil)
+					git.On("CommitsSinceTag", mock.Anything, "v1.0.0").Return(1, nil)
+					version, err := domain.NewVersion("v1.1.0")
+					require.NoError(t, err)
+					cliff.On("CalculateNextVersion", mock.Anything, "v1.0.0").Return(version, nil)
+					git.On("TagExists", mock.Anything, "v1.1.0").Return(false, nil).Once()
+					orch := NewPRReleaseOrchestrator(git, gh, afero.NewMemMapFs(), cliff, new(mockNpmService))
+					state := new(mockStateRepository)
+					state.On("Save", mock.Anything, mock.Anything).Return(nil)
+					orch.stateRepo = state
+					require.NoError(
+						t,
+						orch.Execute(testReleaseContext(t), PRReleaseConfig{EnableRollback: saga, ForceRelease: true}),
+					)
+					git.AssertNotCalled(t, "CreateBranch", mock.Anything, mock.Anything)
+					gh.AssertNotCalled(
+						t,
+						"CreateOrUpdatePR",
+						mock.Anything,
+						mock.Anything,
+						mock.Anything,
+						mock.Anything,
+						mock.Anything,
+						mock.Anything,
+					)
+					git.AssertExpectations(t)
+					cliff.AssertExpectations(t)
+				},
+			)
+		}
+	}
+	for _, subject := range []string{"feat: new feature", "build: release v1.1.01", "build: release v1.2.0"} {
+		t.Run("Should retain normal behavior for "+subject, func(t *testing.T) {
+			orch := &PRReleaseOrchestrator{gitRepo: &mockGitExtendedRepository{baseHeadMessage: subject}}
+			skip, err := orch.releaseAlreadyMerged(t.Context(), "v1.1.0")
+			require.NoError(t, err)
+			require.False(t, skip)
+		})
+	}
+	t.Run("Should propagate base HEAD inspection errors", func(t *testing.T) {
+		failure := errors.New("invalid HEAD")
+		orch := &PRReleaseOrchestrator{gitRepo: &mockGitExtendedRepository{baseHeadError: failure}}
+		_, err := orch.releaseAlreadyMerged(t.Context(), "v1.1.0")
+		require.ErrorIs(t, err, failure)
+	})
+	t.Run("Should not skip an existing tag", func(t *testing.T) {
+		git := &mockGitExtendedRepository{baseHeadMessage: "build: release v1.1.0"}
+		git.On("TagExists", mock.Anything, "v1.1.0").Return(true, nil).Once()
+		orch := &PRReleaseOrchestrator{gitRepo: git}
+		skip, err := orch.releaseAlreadyMerged(t.Context(), "v1.1.0")
+		require.NoError(t, err)
+		require.False(t, skip)
+		git.AssertExpectations(t)
 	})
 }

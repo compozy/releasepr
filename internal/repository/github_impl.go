@@ -208,3 +208,28 @@ func (r *githubRepository) GetPRStatus(ctx context.Context, prNumber int) (strin
 	}
 	return pr.GetState(), nil
 }
+
+// ListOpenPRs reads every page, retaining head repository identity for ownership checks.
+func (r *githubRepository) ListOpenPRs(ctx context.Context, base string) ([]PullRequest, error) {
+	opts := &github.PullRequestListOptions{State: "open", Base: base}
+	result := make([]PullRequest, 0)
+	for {
+		prs, response, err := r.client.PullRequests.List(ctx, r.owner, r.repo, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list open pull requests: %w", err)
+		}
+		for _, pr := range prs {
+			head := pr.GetHead()
+			item := PullRequest{Number: pr.GetNumber(), URL: pr.GetHTMLURL(), Title: pr.GetTitle(), Head: head.GetRef(),
+				SameRepository: strings.EqualFold(head.GetRepo().GetFullName(), r.owner+"/"+r.repo)}
+			for _, label := range pr.Labels {
+				item.Labels = append(item.Labels, label.GetName())
+			}
+			result = append(result, item)
+		}
+		if response.NextPage == 0 {
+			return result, nil
+		}
+		opts.Page = response.NextPage
+	}
+}

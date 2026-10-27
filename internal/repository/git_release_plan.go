@@ -30,6 +30,7 @@ type GitReleaseBodyRepository interface {
 // GitOrchestrationRepository combines mutable release-PR operations with explicit release planning.
 type GitOrchestrationRepository interface {
 	GitExtendedRepository
+	BaseHeadMessage(ctx context.Context, base string) (string, error)
 	GitReleasePlanRepository
 	GitReleaseBodyRepository
 }
@@ -280,4 +281,37 @@ func (r *gitRepository) runReadOnlyGit(ctx context.Context, args ...string) (str
 		return "", fmt.Errorf("git %s failed: %w", args[0], err)
 	}
 	return string(output), nil
+}
+
+// BaseHeadMessage returns the commit message only when HEAD is the base branch tip.
+func (r *gitRepository) BaseHeadMessage(ctx context.Context, base string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	head, err := r.repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to read HEAD: %w", err)
+	}
+	names := []plumbing.ReferenceName{
+		plumbing.NewRemoteReferenceName("origin", base),
+		plumbing.NewBranchReferenceName(base),
+	}
+	for _, name := range names {
+		ref, err := r.repo.Reference(name, true)
+		if errors.Is(err, plumbing.ErrReferenceNotFound) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to read base branch: %w", err)
+		}
+		if ref.Hash() != head.Hash() {
+			continue
+		}
+		commit, err := r.repo.CommitObject(head.Hash())
+		if err != nil {
+			return "", fmt.Errorf("failed to read HEAD commit: %w", err)
+		}
+		return commit.Message, nil
+	}
+	return "", nil
 }

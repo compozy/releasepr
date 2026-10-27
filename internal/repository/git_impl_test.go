@@ -659,3 +659,35 @@ func TestGitRepository_MoveFile(t *testing.T) {
 		assert.Error(t, statErr)
 	})
 }
+
+func TestGitRepository_BaseHeadMessage(t *testing.T) {
+	t.Run("Should inspect a detached base HEAD and ignore a different branch tip", func(t *testing.T) {
+		_, repo := setupTestRepo(t)
+		head, err := repo.Head()
+		require.NoError(t, err)
+		require.NoError(
+			t,
+			repo.Storer.SetReference(
+				plumbing.NewHashReference(plumbing.NewRemoteReferenceName("origin", "main"), head.Hash()),
+			),
+		)
+		require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash())))
+		gitRepo := &gitRepository{repo: repo}
+		message, err := gitRepo.BaseHeadMessage(t.Context(), "main")
+		require.NoError(t, err)
+		require.Equal(t, "Initial commit", message)
+		wt, err := repo.Worktree()
+		require.NoError(t, err)
+		_, err = wt.Commit(
+			"build: release v1.1.0",
+			&git.CommitOptions{
+				AllowEmptyCommits: true,
+				Author:            &object.Signature{Name: "Test", Email: "test@example.com"},
+			},
+		)
+		require.NoError(t, err)
+		message, err = gitRepo.BaseHeadMessage(t.Context(), "main")
+		require.NoError(t, err)
+		require.Empty(t, message)
+	})
+}

@@ -254,3 +254,29 @@ retains its existing history behavior.
 ---
 
 For more details on contributing or extending the CLI, inspect the orchestrator and use case packages, and review the `.cursor/rules/` guidelines that define coding and testing standards for the project.
+
+### Superseded release PRs
+
+After creating or updating a release PR, `pr-release` closes other owned release PRs
+into `main`, leaving one open release PR after a successful run. Ownership requires
+a head branch in the same repository named `release/v<semver>` and either the
+`release-pending` label or the matching `build: release v<semver>` title. Fork PRs,
+unrelated branches, and unmarked release branches with other titles are untouched.
+Each closed PR receives a comment linking its replacement. Branches are retained
+to preserve history and allow manual recovery.
+
+Supersession runs only after the replacement is successfully published (and after
+the saga commits when rollback is enabled). It is explicitly excluded from rollback:
+a cleanup failure returns an error without undoing the replacement or reopening
+already superseded PRs. Rerun to finish remaining closures. A comment may be repeated
+if commenting succeeded but closing failed. Explicit later rollback does not reopen
+superseded PRs. `pr-release --dry-run` lists planned closures without commenting or
+closing PRs; `--skip-pr` also skips this cleanup. Serialize release jobs per repository;
+this guarantee describes a completed run, not an atomic transaction across concurrent runs.
+
+If the base branch HEAD has the computed version's release title or preparation
+commit subject (including GitHub's squash-merge PR-number suffix), or a standard
+GitHub merge subject with the matching release branch and title, and its tag is
+not yet available locally, `pr-release` logs that it is waiting for the tag and
+exits without preparing another same-version PR. This also applies with `--force`.
+Consumer workflows should still avoid triggering release preparation on release merges.

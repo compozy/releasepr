@@ -48,3 +48,7 @@ func (r *githubNoopRepository) GetPRStatus(_ context.Context, _ int) (string, er
 func (r *githubNoopRepository) operationError(action string) error {
 	return fmt.Errorf("%w: unable to %s for %s/%s", ErrGithubTokenRequired, action, r.owner, r.repo)
 }
+
+func (r *githubNoopRepository) ListOpenPRs(_ context.Context, _ string) ([]PullRequest, error) {
+	return nil, r.operationError("list open pull requests")
+}

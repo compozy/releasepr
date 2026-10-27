@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/compozy/releasepr/internal/domain"
+	"github.com/compozy/releasepr/internal/repository"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -11,6 +12,8 @@ import (
 type mockGitExtendedRepository struct {
 	mock.Mock
 	releaseMessages []string
+	baseHeadMessage string
+	baseHeadError   error
 }
 
 // GitRepository methods
@@ -111,7 +114,11 @@ func (m *mockGitExtendedRepository) GetFileStatus(ctx context.Context, path stri
 }
 
 // Mock for GithubExtendedRepository
-type mockGithubExtendedRepository struct{ mock.Mock }
+type mockGithubExtendedRepository struct {
+	mock.Mock
+	openPRs      []repository.PullRequest
+	listPRsError error
+}
 
 func (m *mockGithubExtendedRepository) CreatePullRequest(
 	ctx context.Context,
@@ -237,7 +244,19 @@ func (m *mockGitExtendedRepository) AddedFiles(ctx context.Context, gitRange, pa
 	args := m.Called(ctx, gitRange, path)
 	return args.Get(0).([]string), args.Error(1)
 }
-func (m *mockCliffService) GenerateReleaseBodyChangelog(ctx context.Context, tag, gitRange string, initial bool) (string, error) {
+
+func (m *mockCliffService) GenerateReleaseBodyChangelog(
+	ctx context.Context,
+	tag, gitRange string,
+	initial bool,
+) (string, error) {
 	args := m.Called(ctx, tag, gitRange, initial)
 	return args.String(0), args.Error(1)
+}
+
+func (m *mockGitExtendedRepository) BaseHeadMessage(context.Context, string) (string, error) {
+	return m.baseHeadMessage, m.baseHeadError
+}
+func (m *mockGithubExtendedRepository) ListOpenPRs(context.Context, string) ([]repository.PullRequest, error) {
+	return m.openPRs, m.listPRsError
 }
