@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.35 - 2026-10-27
+
+
+
+### 🐛 Bug Fixes
+
+- Close superseded release pull requests
+
+
+
+### 📚 Documentation
+
+- Document 0.x bump overrides in the releasepr skill (#28)
+
+
+
 ## 0.0.34 - 2026-10-24
 
 
@@ -12,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - Preserve pending release notes across predecessor tags (#26)
+
+
+
+### 📦 Build System
+
+- Release v0.0.34
 
 
 
@@ -440,6 +462,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(repo)* Fix build
 
 
+[0.0.35]: https://github.com/compozy/releasepr/compare/v0.0.34...v0.0.35
 [0.0.34]: https://github.com/compozy/releasepr/compare/v0.0.33...v0.0.34
 [0.0.33]: https://github.com/compozy/releasepr/compare/v0.0.32...v0.0.33
 [0.0.32]: https://github.com/compozy/releasepr/compare/v0.0.31...v0.0.32

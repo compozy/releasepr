@@ -1,7 +1,13 @@
-## 0.0.34 - 2026-10-24
+## 0.0.35 - 2026-10-27
 
 
 
 ### 🐛 Bug Fixes
 
-- Preserve pending release notes across predecessor tags (#26)
+- Close superseded release pull requests
+
+
+
+### 📚 Documentation
+
+- Document 0.x bump overrides in the releasepr skill (#28)
